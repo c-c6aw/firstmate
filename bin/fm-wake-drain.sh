@@ -31,7 +31,7 @@ DRAIN_TMP=
 DRAIN_VIEW_TMP=
 DRAIN_LOCK_HELD=false
 RAW_ROWS=
-RECOVERY_MARKER="$STATE/.watcher-down"
+RECOVERY_MARKER="$STATE/wake/watcher-down"
 RECOVERY_MARKER_TOKEN=
 RECOVERY_ACK_REQUIRED=false
 RECOVERY_ACK_MOVED=false
@@ -94,7 +94,7 @@ reclaim_stale_branch_grant_locked() {
 retire_unconsumable_rows_locked() {
   local retired unusable queued kept
   [ -f "$FM_WAKE_QUEUE" ] || return 0
-  if DRAIN_TMP=$(mktemp "$STATE/.wake-queue.retire.XXXXXX") \
+  if DRAIN_TMP=$(mktemp "$STATE/wake/queue.retire.XXXXXX") \
     && chmod 0600 "$DRAIN_TMP" \
     && unusable=$(awk -F '\t' -v keep="$DRAIN_TMP" '
       NF >= 5 && $2 ~ /^[0-9]+$/ { print > keep; next }
@@ -863,7 +863,7 @@ if [ -n "$ACK_THROUGH" ]; then
   fi
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
   DRAIN_LOCK_HELD=true
-  DRAIN_TMP=$(mktemp "$STATE/.wake-queue.ack.XXXXXX") || exit 1
+  DRAIN_TMP=$(mktemp "$STATE/wake/queue.ack.XXXXXX") || exit 1
   chmod 0600 "$DRAIN_TMP" || exit 1
   if [ "$ACTOR" = branch ]; then
     require_branch_eligible_rows || exit 1
@@ -1013,7 +1013,7 @@ fm_recovery_marker_begin_handling "$RECOVERY_MARKER" || {
 }
 RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
 
-DRAIN_VIEW_TMP=$(mktemp "$STATE/.wake-queue.actor-view.XXXXXX") || exit 1
+DRAIN_VIEW_TMP=$(mktemp "$STATE/wake/queue.actor-view.XXXXXX") || exit 1
 if [ "$ACTOR" = branch ]; then
   ACTOR_ROWS_FILE=$ELIGIBLE_ROWS_FILE
 else

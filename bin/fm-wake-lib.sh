@@ -6,14 +6,21 @@ FM_WAKE_DEFAULT_ROOT="$(cd "$FM_WAKE_LIB_DIR/.." && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-${FM_ROOT:-$FM_WAKE_DEFAULT_ROOT}}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-${STATE:-$FM_HOME/state}}"
-FM_WAKE_QUEUE="${FM_WAKE_QUEUE:-$STATE/.wake-queue}"
-FM_WAKE_QUEUE_LOCK="${FM_WAKE_QUEUE_LOCK:-$STATE/.wake-queue.lock}"
+# The durable wake queue and everything a wake append creates, replaces, or
+# locks live under one subdirectory, so a sandboxed producer such as
+# fm-inbox.sh note can be granted only state/inbox and state/wake instead of
+# the whole state/ tree (docs/configuration.md "Operational home layout and state").
+FM_WAKE_DIR="$STATE/wake"
+FM_WAKE_QUEUE="${FM_WAKE_QUEUE:-$FM_WAKE_DIR/queue}"
+FM_WAKE_QUEUE_LOCK="${FM_WAKE_QUEUE_LOCK:-$FM_WAKE_DIR/queue.lock}"
+FM_WAKE_QUEUE_SEQ="$FM_WAKE_DIR/queue.seq"
+FM_WATCHER_DOWN="$FM_WAKE_DIR/watcher-down"
 FM_LOCK_STALE_AFTER="${FM_LOCK_STALE_AFTER:-2}"
 # Resolved once at source time: fm_pid_identity and fm_path_mtime run inside 0.2s
 # confirm and 0.5s attach polls, and forking uname per call is a measurable cost on
 # the platform (Git Bash/MSYS) that already pays the highest fork price.
 _FM_UNAME=$(uname 2>/dev/null || echo unknown)
-mkdir -p "$STATE"
+mkdir -p "$STATE" "$FM_WAKE_DIR"
 
 # Most wake-library consumers need only queue and lock primitives, including
 # deliberately minimal recovery fixtures and remote installations.
@@ -1088,7 +1095,7 @@ fm_lock_try_acquire() {
   fi
 
   if [ "$lockdir" = "$STATE/.watch.lock" ] \
-    && ! _fm_recovery_marker_publish "$STATE/.watcher-down" downtime; then
+    && ! _fm_recovery_marker_publish "$FM_WATCHER_DOWN" downtime; then
     fm_lock_release "$steal"
     FM_LOCK_HELD_PID=$cur
     FM_LOCK_OWNER_DIR=
@@ -1666,7 +1673,7 @@ fm_autoarm_midturn_healthy() {  # <state-dir> [grace]
   lock_pid=$(sed -n '1p' "$state/.lock" 2>/dev/null || true)
   [ -n "$FM_AUTOARM_SESSION" ] && [ "$FM_AUTOARM_SESSION" = "$lock_pid" ] || return 1
   fm_pid_alive "$lock_pid" || return 1
-  fm_recovery_marker_read "$state/.watcher-down" || return 1
+  fm_recovery_marker_read "$state/wake/watcher-down" || return 1
   recovery=${FM_RECOVERY_MARKER_TOKEN##*:}
   [ -n "$FM_AUTOARM_RECOVERY" ] && [ "$FM_AUTOARM_RECOVERY" = "$recovery" ] || return 1
   epoch_mtime=$(fm_path_mtime "$state/.claude-autoarm-epoch") || return 1
@@ -1938,8 +1945,8 @@ fm_wake_append_locked() {
   clean_key=$(printf '%s' "$key" | fm_wake_clean_field)
   clean_payload=$(printf '%s' "$payload" | fm_wake_clean_field)
   epoch=$(date +%s)
-  seq_file="$STATE/.wake-queue.seq"
-  recovery_marker="$STATE/.watcher-down"
+  seq_file=$FM_WAKE_QUEUE_SEQ
+  recovery_marker=$FM_WATCHER_DOWN
   status=0
 
   _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
@@ -2080,7 +2087,7 @@ fm_wake_commit_secondmate_stall_receipts_through() { # <cutoff> [<rows-file>]
 
 fm_wake_restore_queue() {
   local drained=$1 restore
-  restore="$STATE/.wake-queue.restore.$(fm_current_pid)"
+  restore="$FM_WAKE_DIR/queue.restore.$(fm_current_pid)"
   if [ -e "$FM_WAKE_QUEUE" ]; then
     cat "$drained" "$FM_WAKE_QUEUE" > "$restore" && mv "$restore" "$FM_WAKE_QUEUE"
   else
@@ -2094,11 +2101,11 @@ fm_wake_restore_queue() {
 # status or turn-ended files, and task-specific check wakes.
 fm_wake_queue_prune_task() {  # <state> <task-id> [target]
   local state=$1 task=$2 target=${3:-}
-  local queue="$state/.wake-queue" lock="$state/.wake-queue.lock" tmp
+  local queue="$state/wake/queue" lock="$state/wake/queue.lock" tmp
   [ -f "$queue" ] || return 0
   [ -s "$queue" ] || return 0
   fm_lock_acquire_wait "$lock" || return 1
-  tmp=$(mktemp "$state/.wake-queue.prune.XXXXXX") || { fm_lock_release "$lock"; return 1; }
+  tmp=$(mktemp "$state/wake/queue.prune.XXXXXX") || { fm_lock_release "$lock"; return 1; }
   chmod 0600 "$tmp" 2>/dev/null || true
   awk -F '\t' -v task="$task" -v target="$target" -v state="$state" '
     NF >= 5 {
@@ -2628,3 +2635,47 @@ EOF
 
   return 0
 }
+
+# Fold a pre-subdirectory home's wake queue into $FM_WAKE_DIR so rows queued
+# before an upgrade, or appended afterwards by a still-running older process,
+# are not stranded. Folded rows get fresh sequences above both old and new
+# counters: an outstanding acknowledgement cutoff can then only re-present a
+# folded row, never consume one unseen. The watcher-down marker keeps its
+# generation when the new location has none. Every step is non-blocking and
+# skipped when state/ itself is not writable (a sandboxed producer), so the
+# next writable sourcing process finishes it.
+_fm_wake_fold_legacy() {
+  local legacy="$STATE/.wake-queue" legacy_seq="$STATE/.wake-queue.seq"
+  local legacy_marker="$STATE/.watcher-down" old_seq new_seq kind key payload folded=0
+  [ -e "$legacy" ] || [ -e "$legacy_seq" ] || [ -e "$legacy_marker" ] || return 0
+  [ -w "$STATE" ] || return 0
+  fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK" || return 0
+  if ! fm_lock_try_acquire "$STATE/.wake-queue.lock"; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+    return 0
+  fi
+  if [ -f "$legacy_marker" ] && [ ! -e "$FM_WATCHER_DOWN" ]; then
+    mv -f -- "$legacy_marker" "$FM_WATCHER_DOWN" 2>/dev/null || true
+  fi
+  rm -f -- "$legacy_marker"
+  old_seq=$(cat "$legacy_seq" 2>/dev/null || echo 0)
+  new_seq=$(cat "$FM_WAKE_QUEUE_SEQ" 2>/dev/null || echo 0)
+  case "$old_seq" in ''|*[!0-9]*) old_seq=0 ;; esac
+  case "$new_seq" in ''|*[!0-9]*) new_seq=0 ;; esac
+  if [ "$old_seq" -gt "$new_seq" ]; then
+    printf '%s\n' "$old_seq" > "$FM_WAKE_QUEUE_SEQ" || true
+  fi
+  if [ -f "$legacy" ]; then
+    while IFS=$'\t' read -r _ _ kind key payload; do
+      # Status 2 is a row that was never a valid wake; drop it, do not retry.
+      fm_wake_append_locked "$kind" "$key" "$payload" 2>/dev/null \
+        || { [ "$?" -eq 2 ] || folded=1; }
+    done < "$legacy"
+  fi
+  # A row that could not be folded keeps the legacy queue for a later retry;
+  # re-folding the rows that did land only re-presents them.
+  [ "$folded" -ne 0 ] || rm -f -- "$legacy" "$legacy_seq"
+  fm_lock_release "$STATE/.wake-queue.lock"
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+}
+_fm_wake_fold_legacy || true
