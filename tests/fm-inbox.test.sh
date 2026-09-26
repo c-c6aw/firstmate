@@ -545,22 +545,28 @@ assert_absent "$home/state/inbox/$did.note" "acked note leaves pending"
 assert_present "$home/state/inbox/handled/$did.note" "acked note is in handled"
 pass "drain --ack still moves the note to handled"
 
-# --- note, announce and reply touch only state/inbox and state/wake ---------
-# A sandboxed importer is granted just those two directories writable. With the
-# top level of state/ read-only, every write path must still succeed and leave
-# no top-level entry created, removed, replaced or re-timed.
+# --- a sandboxed note touches only state/inbox --------------------------------
+# A sandboxed importer is granted just state/inbox writable and files with
+# `note --no-announce`. With the rest of state/ read-only, including state/wake,
+# the note must still be saved and leave every entry outside state/inbox
+# untouched: no wake, no lock, no temp file.
 
-top_level_snapshot() {  # <state-dir>
+outside_inbox_snapshot() {  # <state-dir>
   python3 - "$1" <<'PY'
 import os, sys
 state = sys.argv[1]
-st = os.lstat(state)
-print("state", st.st_mtime_ns)
-for name in sorted(os.listdir(state)):
-    st = os.lstat(os.path.join(state, name))
-    # The two granted directories' own mtimes change when their contents do.
-    mtime = "-" if name in ("inbox", "wake") else st.st_mtime_ns
-    print(name, st.st_ino, st.st_mode, mtime)
+def show(path, times=True):
+    st = os.lstat(path)
+    rel = os.path.relpath(path, state)
+    print(rel, st.st_ino, st.st_mode, st.st_size if times else "-", st.st_mtime_ns if times else "-")
+show(state)
+for root, dirs, files in os.walk(state):
+    if root == state and "inbox" in dirs:
+        dirs.remove("inbox")
+        show(os.path.join(state, "inbox"), times=False)
+    dirs.sort()
+    for name in sorted(dirs + files):
+        show(os.path.join(root, name))
 PY
 }
 
@@ -576,37 +582,36 @@ run_inbox_bounded() {
     FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" "$INBOX_BIN" "$@"
 }
 
-home=$(make_home sandbox-top-level)
+home=$(make_home sandbox-inbox-only)
 run_inbox "$home" note "initialize the home" >/dev/null || fail "initializing note failed"
-pending_out=$(run_inbox "$home" note --json "announce me later") || fail "pending note failed"
-pending_id=$(printf '%s' "$pending_out" | json_get id)
-rm -f "$home/state/inbox/.announced/$pending_id"
 wakes_before=$(count_wakes "$home")
-before=$(top_level_snapshot "$home/state")
-chmod a-w "$home/state"
+before=$(outside_inbox_snapshot "$home/state")
+chmod a-w "$home/state" "$home/state/wake"
 set +e
-sandbox_note_out=$(run_inbox_bounded "$home" note "filed from the sandbox" 2>&1)
+sandbox_note_out=$(run_inbox_bounded "$home" note --no-announce "filed from the sandbox" 2>&1)
 sandbox_note_code=$?
-sandbox_announce_out=$(run_inbox_bounded "$home" announce "$pending_id" 2>&1)
-sandbox_announce_code=$?
-sandbox_reply_out=$(run_inbox_bounded "$home" reply "$pending_id" "answered from the sandbox" 2>&1)
-sandbox_reply_code=$?
+sandbox_json_out=$(run_inbox_bounded "$home" note --no-announce --request-id planner-1 --json "filed with a request id" 2>&1)
+sandbox_json_code=$?
 set -e
-chmod u+w "$home/state"
-after=$(top_level_snapshot "$home/state")
-expect_code 0 "$sandbox_note_code" "note with read-only state/ top level: $sandbox_note_out"
-expect_code 0 "$sandbox_announce_code" "announce with read-only state/ top level: $sandbox_announce_out"
-expect_code 0 "$sandbox_reply_code" "reply with read-only state/ top level: $sandbox_reply_out"
-assert_equals "$((wakes_before + 2))" "$(count_wakes "$home")" \
-  "the sandboxed note and announce each append one wake"
-assert_present "$home/state/inbox/.replies/$pending_id" "the sandboxed reply is recorded"
-assert_equals "$before" "$after" "no top-level state/ entry may be touched"
-pass "note, announce and reply write only under state/inbox and state/wake"
+chmod u+w "$home/state" "$home/state/wake"
+after=$(outside_inbox_snapshot "$home/state")
+expect_code 0 "$sandbox_note_code" "note --no-announce with only state/inbox writable: $sandbox_note_out"
+expect_code 0 "$sandbox_json_code" "note --no-announce --json with only state/inbox writable: $sandbox_json_out"
+sandbox_id=$(printf '%s\n' "$sandbox_note_out" | sed -n 's/^queued //p')
+sandbox_json_id=$(printf '%s' "$sandbox_json_out" | json_get id)
+assert_equals False "$(printf '%s' "$sandbox_json_out" | json_get announced)" "a --no-announce note reports announced false"
+assert_present "$home/state/inbox/$sandbox_id.note" "the sandboxed note is saved"
+assert_present "$home/state/inbox/$sandbox_json_id.note" "the sandboxed request-id note is saved"
+assert_absent "$home/state/inbox/.announced/$sandbox_id" "a --no-announce note is left for the watcher to announce"
+assert_equals "$wakes_before" "$(count_wakes "$home")" "a --no-announce note appends no wake"
+assert_equals "$before" "$after" "no entry outside state/inbox may be touched"
+pass "note --no-announce writes only under state/inbox"
 
-# An upgraded home whose legacy counter has not been folded yet: a sandboxed
-# note cannot fold it, but its wake must still land above the legacy counter so
-# an acknowledgement cutoff issued before the upgrade cannot consume it unseen.
-home=$(make_home sandbox-legacy-counter)
+# An upgraded home whose legacy counter has not been folded yet: a note from a
+# process that cannot finish the fold (state/ read-only here) must still land
+# above the legacy counter, so an acknowledgement cutoff issued before the
+# upgrade cannot consume it unseen.
+home=$(make_home legacy-counter)
 run_inbox "$home" note "initialize the home" >/dev/null || fail "initializing note failed"
 printf '50\n' > "$home/state/.wake-queue.seq"
 chmod a-w "$home/state"
@@ -618,5 +623,5 @@ chmod u+w "$home/state"
 expect_code 0 "$sandbox_note_code" "note with an unfolded legacy counter: $sandbox_note_out"
 note_seq=$(awk -F '\t' '$5 ~ /filed above the legacy counter/ { print $2 }' "$home/state/wake/queue")
 [ -n "$note_seq" ] && [ "$note_seq" -gt 50 ] \
-  || fail "the sandboxed note's wake seq '$note_seq' must be above the legacy counter 50"
-pass "a sandboxed note's wake lands above an unfolded legacy counter"
+  || fail "the note's wake seq '$note_seq' must be above the legacy counter 50"
+pass "a note's wake lands above a legacy counter the fold could not finish"

@@ -1984,6 +1984,26 @@ scan_signals() {
   return 0
 }
 
+# Announce each pending captain-inbox note saved with `fm-inbox.sh note
+# --no-announce`: its sandboxed caller holds only state/inbox, so the wake is
+# appended here through `fm-inbox.sh announce`, the one owner of the wake row
+# and its announcement marker. A note without announce_marker=1 predates the
+# marker and already woke firstmate. Prints the announced ids.
+inbox_announce_pending() {
+  local note id
+  for note in "$STATE"/inbox/*.note; do
+    [ -f "$note" ] && [ ! -L "$note" ] || continue
+    id=${note##*/}
+    id=${id%.note}
+    case "$id" in ''|-*|*[!A-Za-z0-9._-]*) continue ;; esac
+    [ ! -f "$STATE/inbox/.announced/$id" ] || continue
+    [ -n "$(sed -n '/^--$/q;/^announce_marker=1$/p' "$note")" ] || continue
+    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-inbox.sh" announce "$id" >/dev/null 2>&1 \
+      && printf ' %s' "$id"
+  done
+  return 0
+}
+
 # Deliver a durably queued process-event result to firstmate. Publication is
 # owned by bin/fm-procevent.sh - by the runner at capture time and by reconcile's
 # re-announcement - so this decides only whether a queued check record has been
@@ -2699,6 +2719,9 @@ while :; do
   else
     triage_log "inactive-outcome reconciliation unavailable"
   fi
+
+  inbox_announced=$(inbox_announce_pending)
+  [ -z "$inbox_announced" ] || wake "check: captain inbox note announced:$inbox_announced"
 
   # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
   # Time-based via .last-check mtime so the cadence survives watcher restarts.
