@@ -1,0 +1,37 @@
+===== S2 real watcher announces a sandbox-filed note; primary drains it; no re-announce =====
+
+$ queue after primary acked its earlier wake
+(empty)
+
+$ sandboxed: fm-inbox.sh note --no-announce --request-id planner-42 'planner proposal 42'
+queued 1790456977-gSXMQU
+  planner proposal 42
+  firstmate's watcher will announce this note at its next poll.
+rc=0
+marker present before watcher: no
+
+$ start bin/fm-watch.sh (FM_POLL=1)
+[watcher exited after ~1s with its wake]
+
+$ watch.log
+check: captain inbox note announced: 1790456977-gSXMQU
+
+$ state/wake/queue
+1790456978	2	check	inbox:1790456977-gSXMQU	check: captain inbox note 1790456977-gSXMQU - planner proposal 42
+marker present after watcher: yes
+
+$ fm-wake-drain.sh (what the primary runs)
+1790456978	2	check	inbox:1790456977-gSXMQU	check: captain inbox note 1790456977-gSXMQU - planner proposal 42
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 682182.1790456978.5zWHmb
+
+$ second watcher run for 8s after ack
+watcher still polling (no new wake)
+inbox rows in queue after second run: 0
+
+$ reply lock path during primary reply (bash -x trace)
+
+$ bash -x bin/fm-inbox.sh reply 1790456977-gSXMQU 'accepted'  (lock paths touched)
+/tmp/fm-scen.VLSN40/lab.z9MRs5/state/wake/replies.lock
+/tmp/fm-scen.VLSN40/lab.z9MRs5/state/wake/replies.lock.owner.<pid>
+/tmp/fm-scen.VLSN40/lab.z9MRs5/state/wake/replies.lock.steal
+inbox entries: 1790456977-gSXMQU.note 1790456977-VmWybD.note .announced .replies .requests 
