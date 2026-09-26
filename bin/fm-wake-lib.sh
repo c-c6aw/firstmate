@@ -657,6 +657,9 @@ fm_recovery_marker_read() {
 }
 
 _fm_atomic_replace() {
+  if [ -d "$2" ]; then
+    [ -L "$2" ] && rm -f -- "$2" || return 1
+  fi
   mv -f -- "$1" "$2"
 }
 
@@ -1920,6 +1923,32 @@ fm_wake_clean_field() {
   LC_ALL=C tr '\t\r\n' '   '
 }
 
+# state/wake is writable to a sandboxed producer (bin/fm-inbox.sh note), so the
+# queue and its counter are written to a fresh temp and renamed into place: a
+# symlink planted at either path is replaced, never written through, and a
+# symlinked queue's target is never copied in.
+_fm_wake_seq_write() {  # <seq>
+  local tmp
+  tmp=$(mktemp "$FM_WAKE_QUEUE_SEQ.XXXXXX") || return 1
+  if printf '%s\n' "$1" > "$tmp" && _fm_atomic_replace "$tmp" "$FM_WAKE_QUEUE_SEQ"; then
+    return 0
+  fi
+  rm -f -- "$tmp"
+  return 1
+}
+
+_fm_wake_queue_extend_locked() {  # [row]
+  local tmp
+  tmp=$(mktemp "$FM_WAKE_QUEUE.XXXXXX") || return 1
+  if { [ ! -f "$FM_WAKE_QUEUE" ] || [ -L "$FM_WAKE_QUEUE" ] || cat -- "$FM_WAKE_QUEUE" > "$tmp"; } \
+    && { [ "$#" -eq 0 ] || printf '%s\n' "$1" >> "$tmp"; } \
+    && _fm_atomic_replace "$tmp" "$FM_WAKE_QUEUE"; then
+    return 0
+  fi
+  rm -f -- "$tmp"
+  return 1
+}
+
 fm_wake_append() {
   local status=0
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
@@ -1936,7 +1965,7 @@ fm_wake_append() {
 # their own write, then release.
 fm_wake_append_locked() {
   local kind=$1 key=$2 payload=$3 clean_key clean_payload epoch seq seq_file status
-  local recovery_marker
+  local recovery_marker row
   case "$kind" in
     signal|stale|check|heartbeat) ;;
     *) printf 'fm_wake_append: invalid wake kind: %s\n' "$kind" >&2; return 2 ;;
@@ -1951,15 +1980,19 @@ fm_wake_append_locked() {
 
   _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
   if [ "$status" -eq 0 ]; then
-    seq=$(cat "$seq_file" 2>/dev/null || echo 0)
+    seq=0
+    [ ! -e "$seq_file" ] || seq=$(cat -- "$seq_file") || status=1
     case "$seq" in
       ''|*[!0-9]*) seq=0 ;;
     esac
     seq=$((seq + 1))
-    printf '%s\n' "$seq" > "$seq_file" || status=$?
   fi
   if [ "$status" -eq 0 ]; then
-    printf '%s\t%s\t%s\t%s\t%s\n' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload" >> "$FM_WAKE_QUEUE" || status=$?
+    _fm_wake_seq_write "$seq" || status=$?
+  fi
+  if [ "$status" -eq 0 ]; then
+    printf -v row '%s\t%s\t%s\t%s\t%s' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload"
+    _fm_wake_queue_extend_locked "$row" || status=$?
   fi
   return "$status"
 }
@@ -2083,16 +2116,6 @@ fm_wake_commit_secondmate_stall_receipts_through() { # <cutoff> [<rows-file>]
       && (rows == "" || ($2 in owned)) && $3 == "check" \
       && $4 ~ /^secondmate-wake-loop-[A-Za-z0-9._-]+-[0-9]+-[0-9]+$/ { print $4 }
   ' "$FM_WAKE_QUEUE" 2>/dev/null)
-}
-
-fm_wake_restore_queue() {
-  local drained=$1 restore
-  restore="$FM_WAKE_DIR/queue.restore.$(fm_current_pid)"
-  if [ -e "$FM_WAKE_QUEUE" ]; then
-    cat "$drained" "$FM_WAKE_QUEUE" > "$restore" && mv "$restore" "$FM_WAKE_QUEUE"
-  else
-    mv "$drained" "$FM_WAKE_QUEUE"
-  fi
 }
 
 # fm_wake_queue_prune_task <state> <task-id> [target]
@@ -2640,18 +2663,29 @@ EOF
 # before an upgrade, or appended afterwards by a still-running older process,
 # are not stranded. Folded rows get fresh sequences above both old and new
 # counters: an outstanding acknowledgement cutoff can then only re-present a
-# folded row, never consume one unseen. The watcher-down marker keeps its
-# generation when the new location has none. Every step is non-blocking and
-# skipped when state/ itself is not writable (a sandboxed producer), so the
-# next writable sourcing process finishes it.
+# folded row, never consume one unseen. The counter is raised even when state/
+# itself is not writable (a sandboxed producer), so its appends also land above
+# the legacy counter. The watcher-down marker keeps its generation when the new
+# location has none. Every step is non-blocking; the rest is skipped when state/
+# is not writable, and the next writable sourcing process finishes it. A
+# secondmate home is folded only by its own code: a mate left on older code
+# still reads the legacy queue.
 _fm_wake_fold_legacy() {
   local legacy="$STATE/.wake-queue" legacy_seq="$STATE/.wake-queue.seq"
   local legacy_marker="$STATE/.watcher-down" old_seq new_seq kind key payload folded=0
   [ -e "$legacy" ] || [ -e "$legacy_seq" ] || [ -e "$legacy_marker" ] || return 0
   [ "$FM_WAKE_QUEUE" = "$FM_WAKE_DIR/queue" ] && [ "$FM_WAKE_QUEUE_LOCK" = "$FM_WAKE_DIR/queue.lock" ] || return 0
-  [ -w "$STATE" ] || return 0
+  [ ! -e "$STATE/../.fm-secondmate-home" ] || [ "$STATE/../bin" -ef "$FM_WAKE_LIB_DIR" ] || return 0
   fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK" || return 0
-  if ! fm_lock_try_acquire "$STATE/.wake-queue.lock"; then
+  old_seq=$(cat "$legacy_seq" 2>/dev/null || echo 0)
+  new_seq=0
+  [ ! -e "$FM_WAKE_QUEUE_SEQ" ] || new_seq=$(cat -- "$FM_WAKE_QUEUE_SEQ" 2>/dev/null) || old_seq=0
+  case "$old_seq" in ''|*[!0-9]*) old_seq=0 ;; esac
+  case "$new_seq" in ''|*[!0-9]*) new_seq=0 ;; esac
+  if [ "$old_seq" -gt "$new_seq" ]; then
+    _fm_wake_seq_write "$old_seq" || true
+  fi
+  if [ ! -w "$STATE" ] || ! fm_lock_try_acquire "$STATE/.wake-queue.lock"; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
   fi
@@ -2659,13 +2693,6 @@ _fm_wake_fold_legacy() {
     mv -f -- "$legacy_marker" "$FM_WATCHER_DOWN" 2>/dev/null || true
   fi
   rm -f -- "$legacy_marker"
-  old_seq=$(cat "$legacy_seq" 2>/dev/null || echo 0)
-  new_seq=$(cat "$FM_WAKE_QUEUE_SEQ" 2>/dev/null || echo 0)
-  case "$old_seq" in ''|*[!0-9]*) old_seq=0 ;; esac
-  case "$new_seq" in ''|*[!0-9]*) new_seq=0 ;; esac
-  if [ "$old_seq" -gt "$new_seq" ]; then
-    printf '%s\n' "$old_seq" > "$FM_WAKE_QUEUE_SEQ" || true
-  fi
   if [ -f "$legacy" ]; then
     while IFS=$'\t' read -r _ _ kind key payload; do
       # Status 2 is a row that was never a valid wake; drop it, do not retry.

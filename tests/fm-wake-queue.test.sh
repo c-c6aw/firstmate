@@ -2882,6 +2882,46 @@ test_legacy_fold_skips_non_canonical_queue() {
   pass "the legacy fold runs only into the canonical state/wake queue"
 }
 
+# A home's own code folds its legacy queue; another home's code acting on a
+# secondmate's state (a mate left on older code) must leave it where that mate
+# still reads it.
+test_legacy_fold_skips_another_homes_secondmate_state() {
+  local dir mate row
+  dir=$(make_case legacy-fold-cross-home)
+  mate="$dir/mate"
+  mkdir -p "$mate/bin" "$mate/state"
+  printf 'mate\n' > "$mate/.fm-secondmate-home"
+  row=$(printf '100\t41\tcheck\tlegacy-a\tcheck: legacy a')
+  printf '%s\n' "$row" > "$mate/state/.wake-queue"
+  printf '41\n' > "$mate/state/.wake-queue.seq"
+  FM_STATE_OVERRIDE="$mate/state" timeout 10 bash "$ROOT/bin/fm-wake-lib.sh" \
+    || fail "loading the lib against a secondmate's state failed"
+  assert_equals "$row" "$(cat "$mate/state/.wake-queue")" "another home's code must not fold a mate's legacy queue"
+  assert_equals 41 "$(cat "$mate/state/.wake-queue.seq")" "another home's code must not reset a mate's legacy counter"
+  [ ! -e "$mate/state/wake/queue" ] && [ ! -e "$mate/state/wake/queue.seq" ] \
+    || fail "another home's code wrote a mate's new-layout queue"
+  pass "the legacy fold leaves another home's secondmate state untouched"
+}
+
+# state/wake is writable to a sandboxed producer: symlinks it plants at the
+# queue and its counter must be replaced, never written through or copied in.
+test_wake_append_replaces_planted_symlinks() {
+  local dir state outside
+  dir=$(make_case planted-symlinks)
+  state="$dir/state"
+  outside="$dir/outside"
+  printf 'outside secret\n' > "$outside"
+  ln -s "$outside" "$state/wake/queue"
+  ln -s "$outside" "$state/wake/queue.seq"
+  append_wake "$state" check planted "check: planted" || fail "append over planted symlinks failed"
+  assert_equals "outside secret" "$(cat "$outside")" "a planted symlink's target must stay unchanged"
+  [ -f "$state/wake/queue" ] && [ ! -L "$state/wake/queue" ] || fail "the queue did not end up a regular file"
+  [ -f "$state/wake/queue.seq" ] && [ ! -L "$state/wake/queue.seq" ] || fail "the counter did not end up a regular file"
+  assert_equals "check planted" "$(awk -F '\t' '{ print $3, $4 }' "$state/wake/queue")" \
+    "the queue must hold only the new row, never the symlink target's content"
+  pass "wake appends replace planted queue and counter symlinks"
+}
+
 # A local mate home on either queue layout (upgraded, or left on older code by
 # /updatefirstmate) must still be observed by the stall tick.
 test_secondmate_stall_reads_either_queue_layout() {
@@ -3314,18 +3354,13 @@ test_secondmate_liveness_tick_error_keeps_scanning_and_wakes() {
 
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake() {
   local dir state pid rc
-  if [ "$(id -u)" -eq 0 ]; then
-    pass "watch liveness: unqueued-outcome check skipped (root ignores file modes)"
-    return 0
-  fi
   dir=$(make_secondmate_liveness_case liveness-unqueued)
   state="$dir/state"
-  : > "$state/wake/queue"
-  chmod 444 "$state/wake/queue"
+  mkdir "$state/wake/queue"
   run_liveness_leg "$dir" unqueued FM_FAKE_WINDOW_GONE=1; pid=$LIVENESS_PID
   rc=0
   wait_for_exit "$pid" 300 || rc=$?
-  chmod 644 "$state/wake/queue"
+  rmdir "$state/wake/queue"
   [ "$rc" -eq 1 ] \
     || fail "an outcome whose check row was never queued did not fail the watcher (rc=$rc): $(cat "$dir/watch-unqueued.out" "$dir/watch-unqueued.err")"
   ! grep -F 'check: secondmate sm1 auto-relaunched' "$dir/watch-unqueued.out" >/dev/null \
@@ -3463,6 +3498,8 @@ test_interruption_before_and_after_raw_commit
 test_wake_queue_prune_task
 test_legacy_top_level_queue_is_folded
 test_legacy_fold_skips_non_canonical_queue
+test_legacy_fold_skips_another_homes_secondmate_state
+test_wake_append_replaces_planted_symlinks
 test_secondmate_stall_reads_either_queue_layout
 test_secondmate_liveness_tick_relaunches_dead_endpoint_once
 test_secondmate_liveness_tick_relaunches_missing_endpoint
