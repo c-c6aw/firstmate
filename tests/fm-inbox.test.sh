@@ -602,3 +602,21 @@ assert_equals "$((wakes_before + 2))" "$(count_wakes "$home")" \
 assert_present "$home/state/inbox/.replies/$pending_id" "the sandboxed reply is recorded"
 assert_equals "$before" "$after" "no top-level state/ entry may be touched"
 pass "note, announce and reply write only under state/inbox and state/wake"
+
+# An upgraded home whose legacy counter has not been folded yet: a sandboxed
+# note cannot fold it, but its wake must still land above the legacy counter so
+# an acknowledgement cutoff issued before the upgrade cannot consume it unseen.
+home=$(make_home sandbox-legacy-counter)
+run_inbox "$home" note "initialize the home" >/dev/null || fail "initializing note failed"
+printf '50\n' > "$home/state/.wake-queue.seq"
+chmod a-w "$home/state"
+set +e
+sandbox_note_out=$(run_inbox_bounded "$home" note "filed above the legacy counter" 2>&1)
+sandbox_note_code=$?
+set -e
+chmod u+w "$home/state"
+expect_code 0 "$sandbox_note_code" "note with an unfolded legacy counter: $sandbox_note_out"
+note_seq=$(awk -F '\t' '$5 ~ /filed above the legacy counter/ { print $2 }' "$home/state/wake/queue")
+[ -n "$note_seq" ] && [ "$note_seq" -gt 50 ] \
+  || fail "the sandboxed note's wake seq '$note_seq' must be above the legacy counter 50"
+pass "a sandboxed note's wake lands above an unfolded legacy counter"
