@@ -71,7 +71,9 @@
 # (tests/fm-inbox.test.sh pins this). Because that caller can plant links in
 # state/inbox/, `reply`, `drain --ack` and the announcement marker write only
 # inside the real .replies/, handled/ and .announced/ directories, and refuse
-# such a directory that is a link or resolves anywhere else.
+# such a directory that is a link or resolves anywhere else. `reply` writes its
+# counter and record in state/wake/ and only renames them in, and `drain --ack`
+# refuses the whole batch when any id is not a valid note id.
 # `ready` is the read-only primary-readiness projection (lock, wake-consumer
 # health, away posture, observation time). It never acquires the session lock
 # and never infers liveness from a lock file, a session, or a pane.
@@ -610,6 +612,9 @@ cmd_announce() {
 # stays a strict total order.
 # The claim is above both the counter and every recorded reply, and the counter
 # is replaced by rename, so a torn or lost counter can never move it backwards.
+# Both the counter and the reply record are written in state/wake/, which the
+# sandboxed importer cannot reach, and only renamed into the replies directory,
+# so no path the importer can swap is ever opened for writing.
 next_reply_seq() {
   local seq_file=.seq seq recorded tmp
   seq=$(cat "$seq_file" 2>/dev/null || printf '0')
@@ -626,7 +631,7 @@ next_reply_seq() {
   esac
   [ "$recorded" -le "$seq" ] || seq=$recorded
   seq=$((seq + 1))
-  tmp=$(mktemp ./.seq-XXXXXX) || return 1
+  tmp=$(mktemp "$FM_WAKE_DIR/.reply-seq.XXXXXX") || return 1
   if ! printf '%s\n' "$seq" >"$tmp" || ! rename_no_follow "$tmp" "$seq_file"; then
     rm -f "$tmp"
     return 1
@@ -667,7 +672,10 @@ cmd_reply() {
     fm_lock_release "$lock"
     die "could not claim the reply sequence"
   fi
-  staging=$(mktemp ./.staging-XXXXXX)
+  if ! staging=$(mktemp "$FM_WAKE_DIR/.reply-staging.XXXXXX"); then
+    fm_lock_release "$lock"
+    die "could not record the reply for $id"
+  fi
   {
     printf 'id=%s\n' "$id"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -679,7 +687,7 @@ cmd_reply() {
       *) printf '\n' ;;
     esac
   } >"$staging"
-  rename_no_follow "$staging" "./$id" || { fm_lock_release "$lock"; die "could not record the reply for $id"; }
+  rename_no_follow "$staging" "./$id" || { rm -f "$staging"; fm_lock_release "$lock"; die "could not record the reply for $id"; }
   fm_lock_release "$lock"
   if [ "$json" -eq 1 ]; then
     need_python
@@ -1165,8 +1173,11 @@ cmd_drain() {
   if [ "${1:-}" = "--ack" ]; then
     shift
     [ "$#" -gt 0 ] || die "usage: fm-inbox.sh drain --ack <id>..."
-    enter_inbox_dir handled || die "refusing to ack: $INBOX/handled is a link or resolves outside $INBOX"
     local id
+    for id in "$@"; do
+      valid_note_id "$id" || die "invalid note id: $id"
+    done
+    enter_inbox_dir handled || die "refusing to ack: $INBOX/handled is a link or resolves outside $INBOX"
     for id in "$@"; do
       if [ -f "$INBOX_REAL/$id.note" ]; then
         rename_no_follow "$INBOX_REAL/$id.note" "./$id.note" || die "could not ack $id"

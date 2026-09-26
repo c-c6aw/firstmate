@@ -681,3 +681,75 @@ assert_equals "$before" "$(outside_listing "$home")" "a planted .seq link redire
 [ ! -L "$home/state/inbox/.replies/.seq" ] || fail "the planted .seq link must be replaced"
 assert_present "$home/state/inbox/.replies/planted.one" "the reply is recorded inside the real replies directory"
 pass "the reply counter replaces a planted link instead of writing through it"
+
+# The importer can swap any path in state/inbox at any moment, including a
+# temporary file between its creation and the write that fills it. This mktemp
+# shim plays that importer: it lets the real mktemp create the file and, for
+# the Nth file (not directory) created inside the inbox, replaces it with a link
+# to an outside canary. A reply that staged in the inbox would create its
+# counter (1st) and then its record (2nd) there.
+SHIM_BIN="$TMP_ROOT/mktemp-swap-bin"
+mkdir -p "$SHIM_BIN"
+REAL_MKTEMP=$(command -v mktemp)
+cat > "$SHIM_BIN/mktemp" <<SHIM
+#!/usr/bin/env bash
+set -euo pipefail
+path=\$("$REAL_MKTEMP" "\$@")
+case " \$* " in *" -d "*) printf '%s\n' "\$path"; exit 0 ;; esac
+real=\$(cd -P "\$(dirname "\$path")" && pwd -P)/\$(basename "\$path")
+printf '%s\n' "\$real" >> "\$SWAP_LOG"
+case "\$real" in
+  "\$SWAP_INBOX"/*)
+    n=\$(( \$(cat "\$SWAP_COUNT" 2>/dev/null || printf 0) + 1 ))
+    printf '%s\n' "\$n" > "\$SWAP_COUNT"
+    if [ "\$n" = "\$SWAP_NTH" ]; then rm -f "\$path"; ln -s "\$SWAP_CANARY" "\$path"; fi ;;
+esac
+printf '%s\n' "\$path"
+SHIM
+chmod +x "$SHIM_BIN/mktemp"
+
+for nth in 1 2; do
+  home=$(plant_home "reply-temp-swap-$nth")
+  printf 'canary\n' > "$home/outside/canary"
+  inbox_real=$(cd -P "$home/state/inbox" && pwd -P)
+  state_real=$(cd -P "$home/state" && pwd -P)
+  set +e
+  out=$(PATH="$SHIM_BIN:$PATH" SWAP_NTH=$nth SWAP_CANARY="$home/outside/canary" \
+    SWAP_INBOX="$inbox_real" SWAP_COUNT="$home/swap.count" SWAP_LOG="$home/swap.log" \
+    run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
+  code=$?
+  set -e
+  [ "$(grep -c "^$state_real/" "$home/swap.log")" -ge 2 ] || fail "reply must create its counter and record files (swap site $nth)"
+  assert_equals "canary" "$(cat "$home/outside/canary")" "a swapped reply temp file ($nth) must not write the outside canary"
+  [ ! -L "$home/outside/canary" ] || fail "the canary must stay a regular file (swap site $nth)"
+  if grep -q "^$inbox_real/" "$home/swap.log"; then
+    fail "reply created a temporary file inside the importer-writable inbox: $(cat "$home/swap.log")"
+  fi
+  expect_code 0 "$code" "reply with the swap attempt at site $nth: $out"
+  assert_contains "$(cat "$home/state/inbox/.replies/planted.one")" "seq=1" "the reply is recorded with seq 1 (swap site $nth)"
+  assert_equals "1" "$(cat "$home/state/inbox/.replies/.seq")" "the counter is a regular file holding 1 (swap site $nth)"
+  printf 'id=planted.two\nannounce_marker=1\n--\nplanted\n' > "$home/state/inbox/planted.two.note"
+  run_inbox_bounded "$home" reply planted.two "second" >/dev/null || fail "second reply failed (swap site $nth)"
+  assert_contains "$(cat "$home/state/inbox/.replies/planted.two")" "seq=2" "the next reply keeps the sequence order (swap site $nth)"
+done
+pass "reply never opens an importer-writable temporary path, so a swapped link writes nothing outside"
+
+# drain --ack puts each id into a path, so every id is checked before anything
+# is created or moved; one bad id refuses the whole batch.
+for bad in '../outside/x' 'a/b' '..' ''; do
+  home=$(plant_home "ack-bad-id")
+  rm -rf "$home/state/inbox/handled"
+  set +e
+  out=$(run_inbox_bounded "$home" drain --ack planted.one "$bad" 2>&1)
+  code=$?
+  set -e
+  expect_code 1 "$code" "drain --ack with id '$bad' must fail: $out"
+  assert_contains "$out" "invalid note id" "drain --ack names the invalid id '$bad'"
+  assert_present "$home/state/inbox/planted.one.note" "a refused batch acks nothing (id '$bad')"
+  assert_absent "$home/state/inbox/handled" "a refused batch creates no directory (id '$bad')"
+  rm -rf "$home"
+done
+home=$(plant_home ack-good-id)
+run_inbox_bounded "$home" drain --ack planted.one >/dev/null || fail "drain --ack of a valid dotted id failed"
+assert_present "$home/state/inbox/handled/planted.one.note" "a valid id is still acked"
+pass "drain --ack refuses an invalid id before creating or moving anything"
