@@ -94,14 +94,15 @@ reclaim_stale_branch_grant_locked() {
 retire_unconsumable_rows_locked() {
   local retired unusable queued kept
   [ -f "$FM_WAKE_QUEUE" ] || return 0
+  # shellcheck disable=SC2016  # The awk program runs through _fm_wake_queue_pipe.
   if DRAIN_TMP=$(mktemp "$STATE/wake/queue.retire.XXXXXX") \
     && chmod 0600 "$DRAIN_TMP" \
-    && unusable=$(awk -F '\t' -v keep="$DRAIN_TMP" '
+    && unusable=$(_fm_wake_queue_pipe "$FM_WAKE_QUEUE" awk -F '\t' -v keep="$DRAIN_TMP" '
       NF >= 5 && $2 ~ /^[0-9]+$/ { print > keep; next }
       { shown++; if (shown <= 20) printf "wake drain:   %s\n", $0 }
       END { if (shown > 20) printf "wake drain:   ... %d further unusable row(s) not shown\n", shown - 20 }
-    ' "$FM_WAKE_QUEUE"); then
-    queued=$(awk 'END { print NR }' "$FM_WAKE_QUEUE")
+    '); then
+    queued=$(_fm_wake_queue_pipe "$FM_WAKE_QUEUE" awk 'END { print NR }')
     kept=$(awk 'END { print NR }' "$DRAIN_TMP")
     retired=$(( queued - kept ))
     if [ "$retired" -eq 0 ]; then
@@ -870,25 +871,27 @@ if [ -n "$ACK_THROUGH" ]; then
     # Delete a row only when its sequence is <= cutoff AND it is named in the
     # extension's eligible snapshot; every other row - including one whose
     # sequence is below cutoff but not in the snapshot - is kept untouched.
-    awk -F '\t' -v cutoff="$ACK_THROUGH" -v seqs="$ELIGIBLE_ROWS_FILE" '
+    # shellcheck disable=SC2016  # The awk program runs through _fm_wake_queue_pipe.
+    _fm_wake_queue_pipe "$FM_WAKE_QUEUE" awk -F '\t' -v cutoff="$ACK_THROUGH" -v seqs="$ELIGIBLE_ROWS_FILE" '
       BEGIN { while ((getline line < seqs) > 0) if (line ~ /^[0-9]+$/) keep[line] = 1 }
       NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff || !($2 in keep) { print }
-    ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
+    ' > "$DRAIN_TMP" || exit 1
     fm_wake_commit_secondmate_stall_receipts_through "$ACK_THROUGH" "$ELIGIBLE_ROWS_FILE" || {
       echo "wake drain: secondmate stall receipt could not be recorded safely" >&2
       exit 1
     }
   else
-    awk -F '\t' -v cutoff="$ACK_THROUGH" -v seqs="$MAIN_ROWS_FILE" '
+    # shellcheck disable=SC2016  # The awk program runs through _fm_wake_queue_pipe.
+    _fm_wake_queue_pipe "$FM_WAKE_QUEUE" awk -F '\t' -v cutoff="$ACK_THROUGH" -v seqs="$MAIN_ROWS_FILE" '
       BEGIN { while ((getline line < seqs) > 0) owned[line]=1 }
       NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff || !($2 in owned) { print }
-    ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
+    ' > "$DRAIN_TMP" || exit 1
     fm_wake_commit_secondmate_stall_receipts_through "$ACK_THROUGH" "$MAIN_ROWS_FILE" || {
       echo "wake drain: secondmate stall receipt could not be recorded safely" >&2
       exit 1
     }
   fi
-  ACK_REMOVED=$(( $(awk 'END { print NR }' "$FM_WAKE_QUEUE") - $(awk 'END { print NR }' "$DRAIN_TMP") ))
+  ACK_REMOVED=$(( $(_fm_wake_queue_pipe "$FM_WAKE_QUEUE" awk 'END { print NR }') - $(awk 'END { print NR }' "$DRAIN_TMP") ))
   if [ ! -s "$DRAIN_TMP" ]; then
     fm_recovery_marker_ack "$RECOVERY_MARKER" "$ACK_GENERATION"
     RECOVERY_ACK_STATUS=$?

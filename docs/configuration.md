@@ -84,7 +84,8 @@ Each effective `FM_HOME` contains private operational directories.
 
 - Task metadata, append-only status events, and endpoint signals.
 - Watcher coordination, away-mode state, and generated Relay artifacts.
-- The durable wake queue under `state/wake/` (`bin/fm-wake-lib.sh`): everything a wake append creates, replaces, or locks lives there, so a sandboxed note producer needs only `state/inbox/` and `state/wake/` writable (`bin/fm-inbox.sh`).
+- The durable wake queue under `state/wake/` (`bin/fm-wake-lib.sh`): its counter, locks, temporary files and the watcher-down recovery marker. Only unsandboxed Firstmate processes write it; no sandboxed writer is ever given `state/wake/`.
+- Captain-inbox notes under `state/inbox/` (`bin/fm-inbox.sh`). A sandboxed note producer, such as a planner importer, is bound only `state/inbox/` writable and files notes with `fm-inbox.sh note --no-announce`; the watcher announces each saved note.
 - Inactive terminal-outcome receipts under `state/terminal-outcomes/`.
 - Enabled extension working namespaces under `state/extensions/`.
 - Parent-side remote ledger copies under `state/secondmate-summary-cache/`.

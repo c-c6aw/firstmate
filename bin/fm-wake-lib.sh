@@ -7,9 +7,10 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-${FM_ROOT:-$FM_WAKE_DEFAULT_ROOT}}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-${STATE:-$FM_HOME/state}}"
 # The durable wake queue and everything a wake append creates, replaces, or
-# locks live under one subdirectory, so a sandboxed producer such as
-# fm-inbox.sh note can be granted only state/inbox and state/wake instead of
-# the whole state/ tree (docs/configuration.md "Operational home layout and state").
+# locks live under one subdirectory that only unsandboxed Firstmate processes
+# write. No sandboxed writer is ever given state/wake: a sandboxed note
+# producer is granted state/inbox alone and the watcher announces its notes
+# (docs/configuration.md "Operational home layout and state").
 FM_WAKE_DIR="$STATE/wake"
 FM_WAKE_QUEUE="${FM_WAKE_QUEUE:-$FM_WAKE_DIR/queue}"
 FM_WAKE_QUEUE_LOCK="${FM_WAKE_QUEUE_LOCK:-$FM_WAKE_DIR/queue.lock}"
@@ -496,14 +497,16 @@ fm_lock_prepare_owner() {
   [ "$back" = "$mypid" ]
 }
 
+# A lock link is honoured only when it names the owner directory
+# fm_lock_owner_dir makes beside the lock. Any other target is foreign: the
+# helpers below remove such a link itself and never rename or delete through it.
 fm_lock_link_owner() {
-  local lockdir=$1 owner
+  local lockdir=$1 owner lock_abs
   owner=$(readlink "$lockdir" 2>/dev/null) || return 1
-  [ -n "$owner" ] || return 1
-  case "$owner" in
-    /*) printf '%s\n' "$owner" ;;
-    *) printf '%s/%s\n' "$(dirname "$lockdir")" "$owner" ;;
-  esac
+  lock_abs=$(fm_lock_abs_path "$lockdir") || return 1
+  case "$owner" in "$lock_abs".owner.*) ;; *) return 1 ;; esac
+  case "${owner#"$lock_abs".owner.}" in ''|*/*) return 1 ;; esac
+  printf '%s\n' "$owner"
 }
 
 fm_lock_points_to_owner() {
@@ -619,8 +622,10 @@ fm_lock_recheck_stale_owner() {
   local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid
   if [ -n "$expected_owner" ]; then
     fm_lock_points_to_owner "$lockdir" "$expected_owner" || return 1
-  elif [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
-    [ -d "$lockdir" ] && [ ! -L "$lockdir" ] || return 1
+  elif [ -L "$lockdir" ]; then
+    ! fm_lock_link_owner "$lockdir" >/dev/null || return 1
+  elif [ -e "$lockdir" ]; then
+    [ -d "$lockdir" ] || return 1
   fi
   actual_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
   [ "$actual_pid" = "$expected_pid" ] || return 1
@@ -974,7 +979,10 @@ fm_recovery_marker_reopen_announced() {
 fm_lock_reap_dead_link() {
   local lockdir=$1 owner pid token tomb current
   [ -L "$lockdir" ] || return 1
-  owner=$(fm_lock_link_owner "$lockdir" 2>/dev/null) || return 1
+  if ! owner=$(fm_lock_link_owner "$lockdir" 2>/dev/null); then
+    rm -f -- "$lockdir" 2>/dev/null
+    return
+  fi
   fm_current_pid current || return 1
   if [ -d "$owner" ]; then
     pid=$(cat "$owner/pid" 2>/dev/null || true)
@@ -1923,10 +1931,8 @@ fm_wake_clean_field() {
   LC_ALL=C tr '\t\r\n' '   '
 }
 
-# state/wake is writable to a sandboxed producer (bin/fm-inbox.sh note), so the
-# queue and its counter are written to a fresh temp and renamed into place: a
-# symlink planted at either path is replaced, never written through, and a
-# symlinked queue's target is never copied in.
+# The queue and its counter are written to a fresh temp and renamed into place,
+# so a symlink at either path is replaced, never written through.
 _fm_wake_seq_write() {  # <seq>
   local tmp
   tmp=$(mktemp "$FM_WAKE_QUEUE_SEQ.XXXXXX") || return 1
@@ -1937,10 +1943,34 @@ _fm_wake_seq_write() {  # <seq>
   return 1
 }
 
+# Run <command> with the queue's rows on stdin, read through an O_NOFOLLOW
+# open: an absent, symlinked or non-regular queue reads as empty, so a queue
+# rewrite never copies a link target in. An unreadable queue fails.
+_fm_wake_queue_pipe() {  # <queue> <command>...
+  local rows
+  rows=$(perl -MFcntl=:DEFAULT -e '
+    my ($path) = @ARGV;
+    my $file;
+    sysopen($file, $path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+      or exit((-l $path || !-e $path) ? 0 : 1);
+    stat($file) or exit 1;
+    exit 0 unless -f _;
+    while (1) {
+      my $read = sysread($file, my $buffer, 65536);
+      exit 1 unless defined $read;
+      last unless $read;
+      print $buffer or exit 1;
+    }
+  ' "$1") || return 1
+  shift
+  [ -z "$rows" ] || rows=$rows$'\n'
+  printf '%s' "$rows" | "$@"
+}
+
 _fm_wake_queue_extend_locked() {  # [row]
   local tmp
   tmp=$(mktemp "$FM_WAKE_QUEUE.XXXXXX") || return 1
-  if { [ ! -f "$FM_WAKE_QUEUE" ] || [ -L "$FM_WAKE_QUEUE" ] || cat -- "$FM_WAKE_QUEUE" > "$tmp"; } \
+  if _fm_wake_queue_pipe "$FM_WAKE_QUEUE" cat > "$tmp" \
     && { [ "$#" -eq 0 ] || printf '%s\n' "$1" >> "$tmp"; } \
     && _fm_atomic_replace "$tmp" "$FM_WAKE_QUEUE"; then
     return 0
@@ -2130,14 +2160,15 @@ fm_wake_queue_prune_task() {  # <state> <task-id> [target]
   fm_lock_acquire_wait "$lock" || return 1
   tmp=$(mktemp "$state/wake/queue.prune.XXXXXX") || { fm_lock_release "$lock"; return 1; }
   chmod 0600 "$tmp" 2>/dev/null || true
-  awk -F '\t' -v task="$task" -v target="$target" -v state="$state" '
+  # shellcheck disable=SC2016  # The awk program runs through _fm_wake_queue_pipe.
+  _fm_wake_queue_pipe "$queue" awk -F '\t' -v task="$task" -v target="$target" -v state="$state" '
     NF >= 5 {
       if ($3 == "stale" && target != "" && $4 == target) next
       if ($3 == "signal" && ($4 == task || $4 == task ".status" || $4 == task ".turn-ended" || $4 == state "/" task ".status" || $4 == state "/" task ".turn-ended")) next
       if ($3 == "check" && $4 == state "/" task ".check.sh") next
     }
     { print }
-  ' "$queue" > "$tmp" || { rm -f "$tmp"; fm_lock_release "$lock"; return 1; }
+  ' > "$tmp" || { rm -f "$tmp"; fm_lock_release "$lock"; return 1; }
   if ! _fm_atomic_replace "$tmp" "$queue"; then
     rm -f "$tmp"
     fm_lock_release "$lock"
@@ -2664,8 +2695,8 @@ EOF
 # are not stranded. Folded rows get fresh sequences above both old and new
 # counters: an outstanding acknowledgement cutoff can then only re-present a
 # folded row, never consume one unseen. The counter is raised even when state/
-# itself is not writable (a sandboxed producer), so its appends also land above
-# the legacy counter. The watcher-down marker keeps its generation when the new
+# itself is not writable, so appends from a process that cannot finish the fold
+# also land above the legacy counter. The watcher-down marker keeps its generation when the new
 # location has none. Every step is non-blocking; the rest is skipped when state/
 # is not writable, and the next writable sourcing process finishes it. A
 # secondmate home is folded only by its own code: a mate left on older code

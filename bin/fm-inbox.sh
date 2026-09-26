@@ -20,8 +20,8 @@
 #           fleet work and must not become fleet work.
 #
 # Usage:
-#   fm-inbox.sh note [--request-id <id>] [--json] [--] <text>...
-#   fm-inbox.sh note [--request-id <id>] [--json] -   (body from stdin)
+#   fm-inbox.sh note [--request-id <id>] [--json] [--no-announce] [--] <text>...
+#   fm-inbox.sh note [--request-id <id>] [--json] [--no-announce] -   (body from stdin)
 #   fm-inbox.sh announce [--json] <id>
 #   fm-inbox.sh reply [--json] <id> <text>... | reply [--json] <id> -
 #   fm-inbox.sh receipts [--after <cursor>] [--all-pending] [--all-handled] [--all-replies]
@@ -62,10 +62,11 @@
 # Each reply is stamped with a durable per-home sequence, so the receipts cursor
 # is a strict total order and two replies recorded in the same second are both
 # readable. One reply per note: a second one is refused.
-# `note`, `announce` and `reply` create, replace, remove and lock entries only
-# under state/inbox/ and state/wake/ (the wake queue, bin/fm-wake-lib.sh), never
-# at the top level of state/, so a sandboxed caller can be granted just those
-# two directories writable (tests/fm-inbox.test.sh pins this).
+# `note --no-announce` saves the note and appends no wake: it creates entries
+# only under state/inbox/, takes no lock and never loads the wake library, so a
+# sandboxed caller is granted just state/inbox/ writable. The watcher announces
+# such a note through `announce` (bin/fm-watch.sh inbox_announce_pending). No
+# sandboxed writer is ever given state/wake/ (tests/fm-inbox.test.sh pins this).
 # `ready` is the read-only primary-readiness projection (lock, wake-consumer
 # health, away posture, observation time). It never acquires the session lock
 # and never infers liveness from a lock file, a session, or a pane.
@@ -366,13 +367,19 @@ announce_note() {  # <id> <summary>
   return "$status"
 }
 
-finish_note_result() {  # <outcome> <id> <request-id> <json> <strict-exit> <summary>
-  local outcome=$1 id=$2 request_id=$3 json=$4 strict=$5 summary=$6
-  local announced=0 acknowledged=0 path="$INBOX/$id.note" rc=0
-  announce_note "$id" "$summary" || rc=$?
+finish_note_result() {  # <outcome> <id> <request-id> <json> <strict-exit> <summary> <announce>
+  local outcome=$1 id=$2 request_id=$3 json=$4 strict=$5 summary=$6 announce=$7
+  local announced=0 acknowledged=0 deferred=0 path="$INBOX/$id.note" rc=0
+  if [ "$announce" -eq 1 ]; then
+    announce_note "$id" "$summary" || rc=$?
+  elif ! note_announced "$id"; then
+    rc=4
+    [ -f "$INBOX/$id.note" ] || rc=2
+  fi
   case "$rc" in
     0) announced=1 ;;
     2) acknowledged=1 ;;
+    4) deferred=1 ;;
   esac
   [ -f "$INBOX/handled/$id.note" ] && path="$INBOX/handled/$id.note"
   if [ "$json" -eq 1 ]; then
@@ -388,9 +395,11 @@ finish_note_result() {  # <outcome> <id> <request-id> <json> <strict-exit> <summ
       printf '  firstmate will pick this up at its next check.\n'
     elif [ "$acknowledged" -eq 1 ]; then
       printf '  firstmate has already acknowledged this note.\n'
+    elif [ "$deferred" -eq 1 ]; then
+      printf "  firstmate's watcher will announce this note at its next poll.\n"
     fi
   fi
-  if [ "$announced" -eq 1 ] || [ "$acknowledged" -eq 1 ]; then
+  if [ "$announced" -eq 1 ] || [ "$acknowledged" -eq 1 ] || [ "$deferred" -eq 1 ]; then
     return 0
   fi
   if [ "$strict" -eq 1 ]; then
@@ -427,7 +436,7 @@ publish_from_reservation() {  # <request-id> <source> <body> <extra>
 }
 
 queue_note() {
-  local source=$1 body=$2 extra=${3:-} request_id=${4:-} json=${5:-0}
+  local source=$1 body=$2 extra=${3:-} request_id=${4:-} json=${5:-0} announce=${6:-1}
   local strict=0
   if [ -n "$request_id" ] || [ "$json" -eq 1 ]; then
     strict=1
@@ -443,7 +452,7 @@ queue_note() {
       id=$(publish_from_reservation "$request_id" "$source" "$body" "$extra") \
         || die "request id $request_id is reserved but unreadable; retry the same request id"
       summary=$(note_summary_from_body "$(read_note_body "$(note_path "$id")")")
-      finish_note_result replay "$id" "$request_id" "$json" "$strict" "$summary"
+      finish_note_result replay "$id" "$request_id" "$json" "$strict" "$summary" "$announce"
       return $?
     fi
     tmp=$(mktemp "$INBOX/.staging-XXXXXX")
@@ -455,12 +464,12 @@ queue_note() {
       id=$(publish_from_reservation "$request_id" "$source" "$body" "$extra") \
         || die "request id $request_id is reserved but unreadable; retry the same request id"
       summary=$(note_summary_from_body "$(read_note_body "$(note_path "$id")")")
-      finish_note_result replay "$id" "$request_id" "$json" "$strict" "$summary"
+      finish_note_result replay "$id" "$request_id" "$json" "$strict" "$summary" "$announce"
       return $?
     fi
     mv "$tmp" "$INBOX/$id.note"
     summary=$(note_summary_from_body "$body")
-    finish_note_result created "$id" "$request_id" "$json" "$strict" "$summary"
+    finish_note_result created "$id" "$request_id" "$json" "$strict" "$summary" "$announce"
     return $?
   fi
 
@@ -470,36 +479,37 @@ queue_note() {
   write_note_file "$tmp" "$id" "$source" "$body" "$extra" ""
   mv "$tmp" "$INBOX/$id.note"
   summary=$(note_summary_from_body "$body")
-  finish_note_result created "$id" "" "$json" "$strict" "$summary"
+  finish_note_result created "$id" "" "$json" "$strict" "$summary" "$announce"
 }
 
 cmd_note() {
-  local body json=0 request_id=""
+  local body json=0 request_id="" announce=1
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --json) json=1; shift ;;
+      --no-announce) announce=0; shift ;;
       --request-id)
-        [ "$#" -ge 2 ] || die "usage: fm-inbox.sh note [--request-id <id>] [--json] [--] <text>... (or: note -)"
+        [ "$#" -ge 2 ] || die "usage: fm-inbox.sh note [--request-id <id>] [--json] [--no-announce] [--] <text>... (or: note -)"
         request_id=$2
         valid_request_id "$request_id" \
           || die "invalid request id (use 1-128 characters: A-Za-z0-9._:-)"
         shift 2
         ;;
       --) shift; break ;;
-      -h|--help) die "usage: fm-inbox.sh note [--request-id <id>] [--json] [--] <text>... (or: note -)" ;;
+      -h|--help) die "usage: fm-inbox.sh note [--request-id <id>] [--json] [--no-announce] [--] <text>... (or: note -)" ;;
       *) break ;;
     esac
   done
   if [ "$#" -eq 0 ]; then
-    die "usage: fm-inbox.sh note [--request-id <id>] [--json] [--] <text>... (or: note -)"
+    die "usage: fm-inbox.sh note [--request-id <id>] [--json] [--no-announce] [--] <text>... (or: note -)"
   elif [ "$1" = "-" ]; then
-    [ "$#" -eq 1 ] || die "usage: fm-inbox.sh note [--request-id <id>] [--json] -"
+    [ "$#" -eq 1 ] || die "usage: fm-inbox.sh note [--request-id <id>] [--json] [--no-announce] -"
     body=$(cat; printf .)
     body=${body%.}
   else
     body="$*"
   fi
-  queue_note text "$body" "" "$request_id" "$json"
+  queue_note text "$body" "" "$request_id" "$json" "$announce"
 }
 
 cmd_announce() {

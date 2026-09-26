@@ -2922,6 +2922,94 @@ test_wake_append_replaces_planted_symlinks() {
   pass "wake appends replace planted queue and counter symlinks"
 }
 
+# A sandboxed caller holds only state/inbox, so a note it saves with
+# --no-announce is announced by the watcher: exactly one inbox wake, delivered.
+test_watcher_announces_unannounced_inbox_note() {
+  local dir state out id
+  dir=$(make_case inbox-announce)
+  state="$dir/state"
+  out="$dir/watch.out"
+  id=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" note --no-announce "filed from a sandbox" \
+    | sed -n 's/^queued //p') || fail "note --no-announce failed"
+  [ -n "$id" ] || fail "note --no-announce printed no id"
+  [ ! -s "$state/wake/queue" ] || fail "a --no-announce note appended a wake: $(cat "$state/wake/queue")"
+  PATH="$dir/fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  wait_for_exit "$!" 40 || fail "watcher did not exit for an unannounced inbox note"
+  grep -F "captain inbox note announced: $id" "$out" >/dev/null \
+    || fail "watcher did not deliver the inbox announcement: $(cat "$out")"
+  assert_equals 1 "$(awk -F '\t' -v key="inbox:$id" '$4 == key' "$state/wake/queue" | wc -l | tr -d ' ')" \
+    "the watcher must append exactly one wake for the note"
+  [ -f "$state/inbox/.announced/$id" ] || fail "the watcher left the note unmarked as announced"
+  pass "watcher announces an inbox note saved without announce"
+}
+
+# Lock links are honoured only when they name the owner directory the lock
+# code made beside the lock; a link to any other directory is removed as a
+# link, never renamed or emptied through.
+test_lock_links_to_foreign_directories_are_not_followed() {
+  local dir state outside dead
+  dead=$(dead_pid)
+  dir=$(make_case foreign-lock-link)
+  state="$dir/state"
+  outside="$dir/outside"
+  mkdir -p "$outside"
+  printf '%s\n' "$dead" > "$outside/pid"
+  printf 'keep\n' > "$outside/role"
+  ln -s "$outside" "$state/wake/queue.lock"
+  append_wake "$state" check foreign-primary "check: foreign primary" || fail "append past a foreign lock link failed"
+  [ -f "$outside/pid" ] && [ -f "$outside/role" ] || fail "a foreign lock link's target was emptied"
+  [ ! -e "$state/wake/queue.lock" ] && [ ! -L "$state/wake/queue.lock" ] || fail "the foreign lock link was not cleared"
+
+  dir=$(make_case foreign-steal-link)
+  state="$dir/state"
+  outside="$dir/outside"
+  mkdir -p "$outside" "$state/wake/queue.lock"
+  printf '%s\n' "$dead" > "$outside/pid"
+  printf '%s\n' "$dead" > "$state/wake/queue.lock/pid"
+  ln -s "$outside" "$state/wake/queue.lock.steal"
+  append_wake "$state" check foreign-steal "check: foreign steal" || fail "append past a foreign steal link failed"
+  [ -f "$outside/pid" ] || fail "a foreign steal link's target was renamed or emptied"
+  ! ls -d "$outside".reaped.* >/dev/null 2>&1 || fail "a foreign steal link's target was renamed"
+  pass "lock links to foreign directories are removed, never followed"
+}
+
+# Rewriting the queue must never copy a symlinked queue's target in: prune and
+# acknowledgement read the queue without following a link.
+test_queue_rewrites_never_copy_a_symlink_target() {
+  local dir state outside drain_err sequence generation
+  dir=$(make_case queue-symlink-prune)
+  state="$dir/state"
+  outside="$dir/outside"
+  printf '1\t99\tcheck\tsecret\toutside secret\n' > "$outside"
+  append_wake "$state" check kept "check: kept" || fail "append failed"
+  ln -sfn "$outside" "$state/wake/queue"
+  FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_wake_queue_prune_task "$2" gone
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state" || fail "prune over a symlinked queue failed"
+  ! grep -F 'outside secret' "$state/wake/queue" >/dev/null || fail "prune copied the symlink target into the queue"
+  assert_equals "$(printf '1\t99\tcheck\tsecret\toutside secret')" "$(cat "$outside")" "prune must not change the symlink target"
+
+  dir=$(make_case queue-symlink-ack)
+  state="$dir/state"
+  outside="$dir/outside"
+  drain_err="$dir/drain.err"
+  printf '1\t99\tcheck\tsecret\toutside secret\n' > "$outside"
+  append_wake "$state" check presented "check: presented" || fail "append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > /dev/null 2> "$drain_err" || fail "drain failed"
+  sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$drain_err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$drain_err")
+  [ -n "$sequence" ] && [ -n "$generation" ] || fail "drain printed no acknowledgement command: $(cat "$drain_err")"
+  ln -sfn "$outside" "$state/wake/queue"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation" \
+    > /dev/null 2> "$dir/ack.err" || true
+  ! grep -F 'outside secret' "$state/wake/queue" "$dir/ack.err" >/dev/null \
+    || fail "acknowledgement copied or printed the symlink target"
+  [ ! -L "$state/wake/queue" ] || fail "acknowledgement left the queue a symlink"
+  pass "queue prune and acknowledgement never copy a symlinked queue's target"
+}
+
 # A local mate home on either queue layout (upgraded, or left on older code by
 # /updatefirstmate) must still be observed by the stall tick.
 test_secondmate_stall_reads_either_queue_layout() {
@@ -3500,6 +3588,9 @@ test_legacy_top_level_queue_is_folded
 test_legacy_fold_skips_non_canonical_queue
 test_legacy_fold_skips_another_homes_secondmate_state
 test_wake_append_replaces_planted_symlinks
+test_watcher_announces_unannounced_inbox_note
+test_lock_links_to_foreign_directories_are_not_followed
+test_queue_rewrites_never_copy_a_symlink_target
 test_secondmate_stall_reads_either_queue_layout
 test_secondmate_liveness_tick_relaunches_dead_endpoint_once
 test_secondmate_liveness_tick_relaunches_missing_endpoint
