@@ -627,8 +627,8 @@ note_seq=$(awk -F '\t' '$5 ~ /filed above the legacy counter/ { print $2 }' "$ho
 pass "a note's wake lands above a legacy counter the fold could not finish"
 
 # --- the primary never writes through a link planted in state/inbox ----------
-# A sandboxed note producer can write state/inbox, so it can replace .replies,
-# handled, or the reply lock with a link and plant a note whose id has dots.
+# A sandboxed note producer can write state/inbox, so it can replace .replies
+# or handled with a link and plant a note whose id has dots.
 # reply and drain --ack must then refuse and write nothing outside the inbox.
 
 plant_home() {  # <name>: a home with a planted dotted note and an outside dir
@@ -639,8 +639,8 @@ plant_home() {  # <name>: a home with a planted dotted note and an outside dir
   printf '%s\n' "$home"
 }
 
-outside_listing() {  # <home>
-  outside_inbox_snapshot "$home/state"
+outside_listing() {  # <home>: skips state/wake, where reply takes its lock
+  outside_inbox_snapshot "$home/state" | grep -v '^wake[ /]'
   find "$1/outside" -print | sort
 }
 
@@ -669,32 +669,6 @@ for target in state outside; do
   assert_equals "$before" "$(outside_listing "$home")" "drain --ack writes nothing through a handled link to $target"
 done
 pass "reply and drain --ack refuse a .replies or handled link and write nothing outside the inbox"
-
-home=$(plant_home replies-lock-foreign)
-ln -s "$home/state" "$home/state/inbox/.replies.lock"
-before=$(outside_listing "$home")
-set +e
-out=$(run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
-code=$?
-set -e
-expect_code 1 "$code" "reply with a foreign .replies.lock link must fail: $out"
-assert_contains "$out" "names a foreign owner" "reply names the planted lock link"
-assert_equals "$before" "$(outside_listing "$home")" "a foreign .replies.lock link redirects no write"
-
-home=$(plant_home replies-lock-owner-link)
-printf '1\n' > "$home/outside/pid"
-inbox_real=$(cd -P "$home/state/inbox" && pwd -P)
-ln -s "$home/outside" "$home/state/inbox/.replies.lock.owner.planted"
-ln -s "$inbox_real/.replies.lock.owner.planted" "$home/state/inbox/.replies.lock"
-before=$(outside_listing "$home")
-set +e
-out=$(run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
-code=$?
-set -e
-expect_code 1 "$code" "reply with a lock owner that is a link must fail: $out"
-assert_present "$home/outside/pid" "the lock helpers never clean a linked owner directory"
-assert_equals "$before" "$(outside_listing "$home")" "a linked lock owner redirects no write"
-pass "reply refuses a .replies.lock link that does not name its own owner directory"
 
 # Inside the real replies directory the counter and record are published by
 # rename, which replaces a planted link rather than following it.
