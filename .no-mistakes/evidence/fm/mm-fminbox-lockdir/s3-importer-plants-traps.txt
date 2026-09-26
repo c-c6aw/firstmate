@@ -1,0 +1,32 @@
+=== Scenario 3 setup: compromised importer (still inside the inbox-only sandbox) plants traps in state/inbox ===
+P-9 note id: 1790450736-QpIogU
+.:
+total 16
+drwxr-xr-x 4 <user> <user> 220 Sep 26 14:25 .
+drwxr-xr-x 4 <user> <user>  80 Sep 26 14:25 ..
+drwxr-xr-x 2 <user> <user>  80 Sep 26 14:25 .announced
+lrwxrwxrwx 1 <user> <user>  34 Sep 26 14:25 .replies.lock -> /tmp/fm-lab.8Ss3Yz/config/precious
+drwxr-xr-x 2 <user> <user>  60 Sep 26 14:25 .requests
+prw-r--r-- 1 <user> <user>   0 Sep 26 14:25 1790450000-fifo.note
+lrwxrwxrwx 1 <user> <user>  20 Sep 26 14:25 1790450001-link.note -> 1790450000-fifo.note
+-rw------- 1 <user> <user> 112 Sep 26 14:25 1790450712-I50o4v.note
+-rw------- 1 <user> <user> 125 Sep 26 14:25 1790450723-QUAk8l.note
+-rw------- 1 <user> <user> 147 Sep 26 14:25 1790450723-eAwymc.note
+-rw------- 1 <user> <user> 116 Sep 26 14:25 1790450736-QpIogU.note
+
+.announced:
+total 4
+drwxr-xr-x 2 <user> <user>  80 Sep 26 14:25 .
+drwxr-xr-x 4 <user> <user> 220 Sep 26 14:25 ..
+-rw-r--r-- 1 <user> <user>  21 Sep 26 14:25 1790450712-I50o4v
+lrwxrwxrwx 1 <user> <user>  10 Sep 26 14:25 1790450736-QpIogU -> ../../.afk
+--- precious dir (outside the sandbox) before ---
+total 12
+drwxr-xr-x 2 <user> <user> 100 Sep 26 14:25 .
+drwxr-xr-x 3 <user> <user>  60 Sep 26 14:25 ..
+-rw-r--r-- 1 <user> <user>   8 Sep 26 14:25 pid
+-rw-r--r-- 1 <user> <user>   8 Sep 26 14:25 role
+-rw-r--r-- 1 <user> <user>   5 Sep 26 14:25 settings
+1742303
+keep-me
+pid 1742303 alive? no

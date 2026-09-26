@@ -1,0 +1,14 @@
+=== Scenario 4: the real watcher (bin/fm-watch.sh, unsandboxed) polls the lab home ===
+$ FM_HOME=$LAB FM_POLL=1 bin/fm-watch.sh    (cycle 1)
+check: rearm-resurface
+watcher exit=0 after 0s
+stderr:
+--- state/wake/queue ---
+1790450712	1	check	inbox:1790450712-I50o4v	check: captain inbox note 1790450712-I50o4v - Captain: check the nightly backup
+--- .announced ---
+total 4
+drwxr-xr-x 2 <user> <user>  80 Sep 26 14:25 .
+drwxr-xr-x 4 <user> <user> 220 Sep 26 14:25 ..
+-rw-r--r-- 1 <user> <user>  21 Sep 26 14:25 1790450712-I50o4v
+lrwxrwxrwx 1 <user> <user>  10 Sep 26 14:25 1790450736-QpIogU -> ../../.afk
+--- state/.afk exists? no

@@ -1,0 +1,17 @@
+# Live validation: sandboxed importer binds only state/inbox; wake queue moved to state/wake
+
+All runs used the real `bin/` scripts from the gate worktree (target 5509a9e) against disposable lab homes made by `bin/fm-lab-home.sh create`. The fleet-override variables were unset, and every tmux call went through a private `TMUX_TMPDIR` inside the lab. The sample importer's sandbox was a real `bwrap` namespace: the whole filesystem read-only (`--ro-bind / /`) except `$FM_HOME/state/inbox` (`--bind`), with `--clearenv` and `--unshare-pid`. The pre-change comparison ran base e9a6675's `bin/`, extracted with `git archive`. All labs were removed afterwards.
+
+| # | Scenario | Result | Transcript |
+|---|----------|--------|------------|
+| 0 | BEFORE: the base `fm-inbox.sh note` in the inbox-only sandbox | hangs until `timeout` kills it (exit 124): it cannot create `state/.wake-queue.lock` and the note never wakes Firstmate | s0-base-sandboxed-note.txt |
+| 1 | Unsandboxed `note` (captain/voice path) | the wake goes to `state/wake/queue`; no `.wake-queue*` or `.watcher-down` at the top of `state/` | s1-primary-note.txt |
+| 2 | The sandboxed importer runs `note --no-announce` (JSON with request id, idempotent replay, plain text) | exit 0 every time; the sandbox gets EROFS on `state/*.check.sh`, `state/*.check-trust`, `state/wake/queue`, `state/wake/queue.lock` and `state/.afk`; the inode/mode/size/mtime snapshot of everything outside `state/inbox` is identical before and after | s2-sandboxed-importer-note.txt |
+| 3 | A compromised importer plants traps in state/inbox: `.announced/<id> -> ../../.afk`, a FIFO note, a symlink-to-FIFO note, `.replies.lock ->` a Firstmate-owned directory shaped like a dead lock owner | setup | s3-importer-plants-traps.txt |
+| 4 | The real `bin/fm-watch.sh` polls with the traps in place | cycle 1 resurfaces the first-arm downtime (by design); after the primary drains and acks, cycle 2 prints `check: captain inbox note announced: <P-7> <P-8>` in about 1s with exactly one queue row each; the poisoned P-9 is skipped; `state/.afk` is never created | s4-*.txt |
+| 5 | The primary drains, runs `reply` past the planted `.replies.lock` link, and acks | the reply is recorded; the planted link is removed; the foreign directory keeps its name and all its files; the notes and queue are acknowledged | s5-primary-handles-importer-notes.txt |
+| 5b | (not caused by this change) the primary's `fm-inbox.sh list` and `receipts` with a FIFO note | both block on base e9a6675 and on this change alike | s5b-preexisting-fifo-list.txt |
+| 6 | Explicit `announce` through the `.afk` marker link, and a `.announced -> ../../config` directory swap | `announce` exits 1 and writes nothing; the watcher keeps polling (beacon advances) and writes nothing into `config/`; once the directory is restored the next poll announces P-11 | s6-planted-announce-links.txt, s6b-watcher-symlinked-announced-dir.txt |
+| 7 | Upgrade: a home written by the base code (`state/.wake-queue`, `.wake-queue.seq`, `.watcher-down`), plus a late append from an old process | the upgraded `fm-wake-drain.sh` folds the rows into `state/wake/queue` above the legacy counter and removes the legacy files; the late legacy row is folded on the next sourcing | s7-legacy-fold-upgrade.txt |
+
+Targeted automated checks: `tests/fm-inbox.test.sh` (all ok), the new `tests/fm-wake-queue.test.sh` regression functions plus the concurrency case (all ok), and `tests/fm-pi-branch-extension.test.sh` (44 ok; 2 skipped because the Pi package is not installed).

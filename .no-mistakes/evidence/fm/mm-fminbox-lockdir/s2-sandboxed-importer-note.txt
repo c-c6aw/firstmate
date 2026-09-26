@@ -1,0 +1,38 @@
+=== Scenario 2 (AFTER): sample importer sandboxed to state/inbox only files notes with --no-announce ===
+sandbox: bwrap --ro-bind / / --bind $LAB/state/inbox $LAB/state/inbox --unshare-pid --clearenv
+
+$ fm-inbox.sh note --no-announce --request-id sample-P-7 --json 'Sample proposal P-7: ...'
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1790450723-eAwymc","request_id":"sample-P-7","saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-lab.8Ss3Yz/state/inbox/1790450723-eAwymc.note"}
+exit=0 elapsed=0s
+
+$ (importer retry) same request id again
+{"schema":"fm-inbox-note.v1","outcome":"replay","id":"1790450723-eAwymc","request_id":"sample-P-7","saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-lab.8Ss3Yz/state/inbox/1790450723-eAwymc.note"}
+exit=0
+
+$ fm-inbox.sh note --no-announce 'Sample proposal P-8: ...'  (human output)
+queued 1790450723-QUAk8l
+  sample proposal P-8
+  firstmate's watcher will announce this note at its next poll.
+exit=0
+
+--- the sandbox still cannot touch anything the watcher executes or the wake queue ---
+state/evil.check.sh:     Read-only file system
+state/evil.check-trust:  Read-only file system
+state/wake/queue:        Read-only file system
+state/wake/queue.lock:   Read-only file system
+state/.afk:              Read-only file system
+
+--- diff of every entry under state/ outside state/inbox (inode, mode, size, mtime), before vs after ---
+(no difference: nothing outside state/inbox was created, removed or modified)
+--- wake queue still only the primary's row ---
+1790450712	1	check	inbox:1790450712-I50o4v	check: captain inbox note 1790450712-I50o4v - Captain: check the nightly backup
+--- inbox ---
+/tmp/fm-lab.8Ss3Yz/state/inbox:
+1790450712-I50o4v.note
+1790450723-eAwymc.note
+1790450723-QUAk8l.note
+.announced
+.requests
+
+/tmp/fm-lab.8Ss3Yz/state/inbox/.announced:
+1790450712-I50o4v

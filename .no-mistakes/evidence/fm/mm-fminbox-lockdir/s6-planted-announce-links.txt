@@ -1,0 +1,25 @@
+=== Scenario 6a: primary explicitly announces the note whose marker the importer pointed at ../../.afk ===
+$ ls -l state/inbox/.announced/1790450736-QpIogU
+lrwxrwxrwx 1 <user> <user> 10 Sep 26 14:25 /tmp/fm-lab.8Ss3Yz/state/inbox/.announced/1790450736-QpIogU -> ../../.afk
+$ bin/fm-inbox.sh announce 1790450736-QpIogU
+fm-inbox: note 1790450736-QpIogU is saved at /tmp/fm-lab.8Ss3Yz/state/inbox/1790450736-QpIogU.note but firstmate was NOT woken
+exit=1
+state/.afk exists? no
+fm_afk_mode would read: (absent -> not away)
+
+=== Scenario 6b: importer (sandboxed) swaps state/inbox/.announced for a symlink to $LAB/config and files P-10 ===
+P-10 id: 1790451113-M8DBsP
+lrwxrwxrwx 1 <user> <user> 12 Sep 26 14:31 /tmp/fm-lab.8Ss3Yz/state/inbox/.announced -> ../../config
+config/ before: precious 
+$ FM_HOME=$LAB FM_POLL=1 timeout 8 bin/fm-watch.sh
+check: rearm-resurface
+watcher exit=0 (124 = still polling with nothing to announce, killed by the 8s bound)
+beacon advanced: 1790450761 -> 1790451113
+$ bin/fm-inbox.sh announce 1790451113-M8DBsP   (primary, directly)
+fm-inbox: note 1790451113-M8DBsP is saved at /tmp/fm-lab.8Ss3Yz/state/inbox/1790451113-M8DBsP.note but firstmate was NOT woken
+exit=1
+config/ after:  precious 
+file named 1790451113-M8DBsP anywhere outside state/inbox? 0
+--- wake queue ---
+1790451113	4	check	inbox:1790450736-QpIogU	check: captain inbox note 1790450736-QpIogU - Sample proposal P-9: poisoned marker
+1790451113	5	check	inbox:1790451113-M8DBsP	check: captain inbox note 1790451113-M8DBsP - Sample proposal P-10: symlinked marker dir
