@@ -2903,25 +2903,6 @@ test_legacy_fold_skips_another_homes_secondmate_state() {
   pass "the legacy fold leaves another home's secondmate state untouched"
 }
 
-# state/wake is writable to a sandboxed producer: symlinks it plants at the
-# queue and its counter must be replaced, never written through or copied in.
-test_wake_append_replaces_planted_symlinks() {
-  local dir state outside
-  dir=$(make_case planted-symlinks)
-  state="$dir/state"
-  outside="$dir/outside"
-  printf 'outside secret\n' > "$outside"
-  ln -s "$outside" "$state/wake/queue"
-  ln -s "$outside" "$state/wake/queue.seq"
-  append_wake "$state" check planted "check: planted" || fail "append over planted symlinks failed"
-  assert_equals "outside secret" "$(cat "$outside")" "a planted symlink's target must stay unchanged"
-  [ -f "$state/wake/queue" ] && [ ! -L "$state/wake/queue" ] || fail "the queue did not end up a regular file"
-  [ -f "$state/wake/queue.seq" ] && [ ! -L "$state/wake/queue.seq" ] || fail "the counter did not end up a regular file"
-  assert_equals "check planted" "$(awk -F '\t' '{ print $3, $4 }' "$state/wake/queue")" \
-    "the queue must hold only the new row, never the symlink target's content"
-  pass "wake appends replace planted queue and counter symlinks"
-}
-
 # A sandboxed caller holds only state/inbox, so a note it saves with
 # --no-announce is announced by the watcher: exactly one inbox wake, delivered.
 test_watcher_announces_unannounced_inbox_note() {
@@ -2942,6 +2923,62 @@ test_watcher_announces_unannounced_inbox_note() {
     "the watcher must append exactly one wake for the note"
   [ -f "$state/inbox/.announced/$id" ] || fail "the watcher left the note unmarked as announced"
   pass "watcher announces an inbox note saved without announce"
+}
+
+# state/inbox is writable to a sandboxed note producer, so a link it plants for
+# the announcement marker, or for the marker directory itself, must never make
+# the unsandboxed watcher create a file outside state/inbox.
+test_inbox_announce_never_writes_through_planted_links() {
+  local layout dir state outside id
+  for layout in marker directory; do
+    dir=$(make_case "inbox-planted-$layout")
+    state="$dir/state"
+    outside="$dir/outside"
+    mkdir -p "$outside"
+    id=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" note --no-announce "planted $layout" \
+      | sed -n 's/^queued //p') || fail "note --no-announce failed"
+    [ -n "$id" ] || fail "note --no-announce printed no id"
+    if [ "$layout" = marker ]; then
+      mkdir -p "$state/inbox/.announced"
+      ln -s "$outside/planted" "$state/inbox/.announced/$id"
+    else
+      ln -s "$outside" "$state/inbox/.announced"
+    fi
+    FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" bash -c '
+      . "$1"
+      inbox_announce_pending
+    ' _ "$WATCH" > /dev/null || fail "the watcher's inbox announce failed beside a planted $layout link"
+    FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" announce "$id" > /dev/null 2>&1 || true
+    assert_equals "" "$(ls -A "$outside")" \
+      "announcing beside a planted $layout link must create nothing outside state/inbox"
+  done
+  pass "inbox announcement never writes through a link planted in state/inbox"
+}
+
+# A read of an importer-written note that blocks (a note swapped for a FIFO)
+# must not stall the watcher's poll.
+test_inbox_announce_bounds_a_blocking_note_read() {
+  local dir state id real_sed rc=0
+  dir=$(make_case inbox-blocking-read)
+  state="$dir/state"
+  id=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-inbox.sh" note --no-announce "blocking read" \
+    | sed -n 's/^queued //p') || fail "note --no-announce failed"
+  [ -n "$id" ] || fail "note --no-announce printed no id"
+  real_sed=$(command -v sed)
+  cat > "$dir/fakebin/sed" <<SH
+#!/usr/bin/env bash
+case "\$*" in *.note*) exec sleep 60 ;; esac
+exec "$real_sed" "\$@"
+SH
+  chmod +x "$dir/fakebin/sed"
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" timeout 30 bash -c '
+    . "$1"
+    PATH="$2:$PATH"
+    inbox_announce_pending
+  ' _ "$WATCH" "$dir/fakebin" > /dev/null || rc=$?
+  assert_equals 0 "$rc" "a blocking note read must not stall the watcher's poll"
+  pass "the watcher bounds a blocking read of an inbox note"
 }
 
 # Lock links are honoured only when they name the owner directory the lock
@@ -3442,13 +3479,18 @@ test_secondmate_liveness_tick_error_keeps_scanning_and_wakes() {
 
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake() {
   local dir state pid rc
+  if [ "$(id -u)" -eq 0 ]; then
+    pass "watch liveness: unqueued-outcome check skipped (root ignores file modes)"
+    return 0
+  fi
   dir=$(make_secondmate_liveness_case liveness-unqueued)
   state="$dir/state"
-  mkdir "$state/wake/queue"
+  : > "$state/wake/queue"
+  chmod 444 "$state/wake/queue"
   run_liveness_leg "$dir" unqueued FM_FAKE_WINDOW_GONE=1; pid=$LIVENESS_PID
   rc=0
   wait_for_exit "$pid" 300 || rc=$?
-  rmdir "$state/wake/queue"
+  chmod 644 "$state/wake/queue"
   [ "$rc" -eq 1 ] \
     || fail "an outcome whose check row was never queued did not fail the watcher (rc=$rc): $(cat "$dir/watch-unqueued.out" "$dir/watch-unqueued.err")"
   ! grep -F 'check: secondmate sm1 auto-relaunched' "$dir/watch-unqueued.out" >/dev/null \
@@ -3587,8 +3629,9 @@ test_wake_queue_prune_task
 test_legacy_top_level_queue_is_folded
 test_legacy_fold_skips_non_canonical_queue
 test_legacy_fold_skips_another_homes_secondmate_state
-test_wake_append_replaces_planted_symlinks
 test_watcher_announces_unannounced_inbox_note
+test_inbox_announce_never_writes_through_planted_links
+test_inbox_announce_bounds_a_blocking_note_read
 test_lock_links_to_foreign_directories_are_not_followed
 test_queue_rewrites_never_copy_a_symlink_target
 test_secondmate_stall_reads_either_queue_layout

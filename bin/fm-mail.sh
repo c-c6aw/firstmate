@@ -321,7 +321,7 @@ mail_rollback_wake_locked() {
     return 1
   fi
   chmod 0600 "$tmp" 2>/dev/null || true
-  if ! _fm_atomic_replace "$tmp" "$FM_WAKE_QUEUE"; then
+  if ! mv -f -- "$tmp" "$FM_WAKE_QUEUE"; then
     rm -f -- "$tmp"
     return 1
   fi

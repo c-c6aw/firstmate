@@ -1988,18 +1988,29 @@ scan_signals() {
 # --no-announce`: its sandboxed caller holds only state/inbox, so the wake is
 # appended here through `fm-inbox.sh announce`, the one owner of the wake row
 # and its announcement marker. A note without announce_marker=1 predates the
-# marker and already woke firstmate. Prints the announced ids.
+# marker and already woke firstmate. Every read of an importer-written note is
+# time-bounded, and a timeout ends this poll's scan. Prints the announced ids.
 inbox_announce_pending() {
-  local note id
+  local note id rc header announced="$STATE/inbox/.announced"
+  if [ -e "$announced" ] || [ -L "$announced" ]; then
+    [ -d "$announced" ] && [ ! -L "$announced" ] || return 0
+  fi
   for note in "$STATE"/inbox/*.note; do
     [ -f "$note" ] && [ ! -L "$note" ] || continue
     id=${note##*/}
     id=${id%.note}
     case "$id" in ''|-*|*[!A-Za-z0-9._-]*) continue ;; esac
-    [ ! -f "$STATE/inbox/.announced/$id" ] || continue
-    [ -n "$(sed -n '/^--$/q;/^announce_marker=1$/p' "$note")" ] || continue
-    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-inbox.sh" announce "$id" >/dev/null 2>&1 \
-      && printf ' %s' "$id"
+    [ ! -e "$announced/$id" ] && [ ! -L "$announced/$id" ] || continue
+    _fm_wake_require_timeout || return 0
+    rc=0
+    header=$(fm_run_timed 5 sed -n '/^--$/q;/^announce_marker=1$/p' "$note" 2>/dev/null) || rc=$?
+    ! fm_timed_out "$rc" || return 0
+    [ -n "$header" ] || continue
+    rc=0
+    fm_run_timed 5 env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/fm-inbox.sh" announce "$id" >/dev/null 2>&1 || rc=$?
+    ! fm_timed_out "$rc" || return 0
+    [ "$rc" -ne 0 ] || printf ' %s' "$id"
   done
   return 0
 }

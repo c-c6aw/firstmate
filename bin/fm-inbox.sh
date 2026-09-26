@@ -256,9 +256,22 @@ note_announced() {  # <id>
   [ -f "$ANNOUNCED_DIR/$1" ]
 }
 
+# The marker is written only inside the real state/inbox/.announced directory
+# and only as a new file, never through a link planted in state/inbox, which a
+# sandboxed note producer can write.
 mark_announced() {  # <id>
-  mkdir -p "$ANNOUNCED_DIR"
-  printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ANNOUNCED_DIR/$1"
+  local inbox_real stamp
+  mkdir -p "$ANNOUNCED_DIR" 2>/dev/null || return 1
+  inbox_real=$(cd -P "$INBOX" && pwd -P) || return 1
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  (
+    cd -P "$ANNOUNCED_DIR" && [ "$(pwd -P)" = "$inbox_real/.announced" ] || exit 1
+    perl -MFcntl=:DEFAULT -e '
+      sysopen(my $marker, $ARGV[0], O_WRONLY | O_CREAT | O_EXCL, 0666) or exit 1;
+      print {$marker} "$ARGV[1]\n" or exit 1;
+      close($marker) or exit 1;
+    ' "./$1" "$stamp"
+  )
 }
 
 # true | false | unknown, for the note recorded at <path>.
@@ -359,7 +372,7 @@ announce_note() {  # <id> <summary>
     return 2
   fi
   if fm_wake_append_locked check "inbox:$id" "check: captain inbox note $id - $summary"; then
-    mark_announced "$id"
+    mark_announced "$id" || status=1
   else
     status=1
   fi

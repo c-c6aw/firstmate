@@ -562,23 +562,17 @@ SH
   chmod +x "$fakebin/python3"
 
   # Triple-fault fixture: the journal and cursor cannot be written (read-only),
-  # and the rollback's queue rewrite cannot create its temp file while the wake
-  # append still succeeds, so the rollback must fail. No durable record and no
-  # queue rewrite can remove the wake row, so the poll must fail closed with an
-  # honest report and leave the row for the next poll to heal.
-  local real_mktemp
-  real_mktemp=$(command -v mktemp)
-  cat > "$fakebin/mktemp" <<SH
-#!/usr/bin/env bash
-case "\$*" in *.rollback.*) [ ! -e "$roll_home/rollback-blocked" ] || exit 1 ;; esac
-exec "$real_mktemp" "\$@"
-SH
-  chmod +x "$fakebin/mktemp"
-  : > "$roll_home/rollback-blocked"
+  # and the queue file is write-only so the wake append succeeds but the
+  # rollback's awk rewrite cannot read the queue and must fail. No durable
+  # record and no queue rewrite can remove the wake row, so the poll must fail
+  # closed with an honest report and leave the row for the next poll to heal.
   printf 'uidvalidity=90009\n' > "$roll_home/state/.mail-seen"
   : > "$roll_home/state/.mail-woken"
+  : > "$roll_home/state/wake/queue"
   chmod 0400 "$roll_home/state/.mail-seen" "$roll_home/state/.mail-woken"
+  chmod 0200 "$roll_home/state/wake/queue"
   [ -w "$roll_home/state/.mail-seen" ] && { echo "fixture unexpected: cursor still writable"; return 1; }
+  [ -w "$roll_home/state/wake/queue" ] || { echo "fixture unexpected: queue not appendable"; return 1; }
 
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
@@ -592,7 +586,7 @@ SH
   # Restore access: the still-queued wake must be healed without re-waking, so
   # the mail surfaces exactly once from the retained row and never duplicates.
   chmod 0600 "$roll_home/state/.mail-seen" "$roll_home/state/.mail-woken"
-  rm -f "$roll_home/rollback-blocked"
+  chmod 0644 "$roll_home/state/wake/queue"
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$roll_home" PATH="$fakebin:$PATH" \
