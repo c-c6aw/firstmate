@@ -625,3 +625,85 @@ note_seq=$(awk -F '\t' '$5 ~ /filed above the legacy counter/ { print $2 }' "$ho
 [ -n "$note_seq" ] && [ "$note_seq" -gt 50 ] \
   || fail "the note's wake seq '$note_seq' must be above the legacy counter 50"
 pass "a note's wake lands above a legacy counter the fold could not finish"
+
+# --- the primary never writes through a link planted in state/inbox ----------
+# A sandboxed note producer can write state/inbox, so it can replace .replies,
+# handled, or the reply lock with a link and plant a note whose id has dots.
+# reply and drain --ack must then refuse and write nothing outside the inbox.
+
+plant_home() {  # <name>: a home with a planted dotted note and an outside dir
+  local home
+  home=$(make_home "$1")
+  mkdir -p "$home/state/inbox" "$home/state/wake" "$home/outside"
+  printf 'id=planted.one\nannounce_marker=1\n--\nplanted\n' > "$home/state/inbox/planted.one.note"
+  printf '%s\n' "$home"
+}
+
+outside_listing() {  # <home>
+  outside_inbox_snapshot "$home/state"
+  find "$1/outside" -print | sort
+}
+
+for target in state outside; do
+  home=$(plant_home "replies-link-$target")
+  ln -s "$home/$target" "$home/state/inbox/.replies"
+  before=$(outside_listing "$home")
+  set +e
+  out=$(run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
+  code=$?
+  set -e
+  expect_code 1 "$code" "reply through a .replies link to $target must fail: $out"
+  assert_contains "$out" "refusing to reply" "reply names the planted .replies link"
+  assert_equals "$before" "$(outside_listing "$home")" "reply writes nothing through a .replies link to $target"
+
+  home=$(plant_home "handled-link-$target")
+  ln -s "$home/$target" "$home/state/inbox/handled"
+  before=$(outside_listing "$home")
+  set +e
+  out=$(run_inbox_bounded "$home" drain --ack planted.one 2>&1)
+  code=$?
+  set -e
+  expect_code 1 "$code" "drain --ack through a handled link to $target must fail: $out"
+  assert_contains "$out" "refusing to ack" "drain --ack names the planted handled link"
+  assert_present "$home/state/inbox/planted.one.note" "the note stays pending when the ack is refused"
+  assert_equals "$before" "$(outside_listing "$home")" "drain --ack writes nothing through a handled link to $target"
+done
+pass "reply and drain --ack refuse a .replies or handled link and write nothing outside the inbox"
+
+home=$(plant_home replies-lock-foreign)
+ln -s "$home/state" "$home/state/inbox/.replies.lock"
+before=$(outside_listing "$home")
+set +e
+out=$(run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
+code=$?
+set -e
+expect_code 1 "$code" "reply with a foreign .replies.lock link must fail: $out"
+assert_contains "$out" "names a foreign owner" "reply names the planted lock link"
+assert_equals "$before" "$(outside_listing "$home")" "a foreign .replies.lock link redirects no write"
+
+home=$(plant_home replies-lock-owner-link)
+printf '1\n' > "$home/outside/pid"
+inbox_real=$(cd -P "$home/state/inbox" && pwd -P)
+ln -s "$home/outside" "$home/state/inbox/.replies.lock.owner.planted"
+ln -s "$inbox_real/.replies.lock.owner.planted" "$home/state/inbox/.replies.lock"
+before=$(outside_listing "$home")
+set +e
+out=$(run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
+code=$?
+set -e
+expect_code 1 "$code" "reply with a lock owner that is a link must fail: $out"
+assert_present "$home/outside/pid" "the lock helpers never clean a linked owner directory"
+assert_equals "$before" "$(outside_listing "$home")" "a linked lock owner redirects no write"
+pass "reply refuses a .replies.lock link that does not name its own owner directory"
+
+# Inside the real replies directory the counter and record are published by
+# rename, which replaces a planted link rather than following it.
+home=$(plant_home replies-seq-link)
+mkdir -p "$home/state/inbox/.replies"
+ln -s "$home/outside" "$home/state/inbox/.replies/.seq"
+before=$(outside_listing "$home")
+run_inbox_bounded "$home" reply planted.one "answer" >/dev/null || fail "reply with a planted .seq link failed"
+assert_equals "$before" "$(outside_listing "$home")" "a planted .seq link redirects no write"
+[ ! -L "$home/state/inbox/.replies/.seq" ] || fail "the planted .seq link must be replaced"
+assert_present "$home/state/inbox/.replies/planted.one" "the reply is recorded inside the real replies directory"
+pass "the reply counter replaces a planted link instead of writing through it"
