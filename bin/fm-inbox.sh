@@ -67,6 +67,10 @@
 # sandboxed caller is granted just state/inbox/ writable. The watcher announces
 # such a note through `announce` (bin/fm-watch.sh inbox_announce_pending). No
 # sandboxed writer is ever given state/wake/ (tests/fm-inbox.test.sh pins this).
+# Because that caller can plant links in state/inbox/, `reply`, `drain --ack`
+# and the announcement marker write only inside the real .replies/, handled/ and
+# .announced/ directories, and refuse such a directory, or a reply lock, that is
+# a link or resolves anywhere else.
 # `ready` is the read-only primary-readiness projection (lock, wake-consumer
 # health, away posture, observation time). It never acquires the session lock
 # and never infers liveness from a lock file, a session, or a pane.
@@ -202,8 +206,6 @@ REQUESTS="$INBOX/.requests"
 ANNOUNCED_DIR="$INBOX/.announced"
 REPLIES="$INBOX/.replies"
 
-REPLY_SEQ_LOCK="$INBOX/.replies.lock"
-
 RECEIPTS_PENDING_BOUND=20
 RECEIPTS_HANDLED_BOUND=20
 RECEIPTS_REPLIES_BOUND=20
@@ -256,16 +258,32 @@ note_announced() {  # <id>
   [ -f "$ANNOUNCED_DIR/$1" ]
 }
 
+# A sandboxed note producer can write state/inbox, so it can plant a link where
+# the primary later writes. enter_inbox_dir changes into the real
+# state/inbox/<name> directory, creating it when absent, and refuses a <name>
+# that is a link or resolves anywhere else. Writes after it use paths relative
+# to that directory, which a later swap of <name> cannot redirect, and publish
+# with rename_no_follow, which replaces a planted link instead of following it
+# into a directory the way mv does. It sets INBOX_REAL to the physical inbox.
+enter_inbox_dir() {  # <name>
+  mkdir -p "$INBOX" 2>/dev/null || return 1
+  INBOX_REAL=$(cd -P "$INBOX" && pwd -P) || return 1
+  [ ! -L "$INBOX/$1" ] || return 1
+  mkdir -p "$INBOX/$1" 2>/dev/null || return 1
+  cd -P "$INBOX/$1" 2>/dev/null && [ "$(pwd -P)" = "$INBOX_REAL/$1" ]
+}
+
+rename_no_follow() {  # <from> <to>
+  perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$1" "$2"
+}
+
 # The marker is written only inside the real state/inbox/.announced directory
-# and only as a new file, never through a link planted in state/inbox, which a
-# sandboxed note producer can write.
+# and only as a new file.
 mark_announced() {  # <id>
-  local inbox_real stamp
-  mkdir -p "$ANNOUNCED_DIR" 2>/dev/null || return 1
-  inbox_real=$(cd -P "$INBOX" && pwd -P) || return 1
+  local stamp
   stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   (
-    cd -P "$ANNOUNCED_DIR" && [ "$(pwd -P)" = "$inbox_real/.announced" ] || exit 1
+    enter_inbox_dir .announced || exit 1
     perl -MFcntl=:DEFAULT -e '
       sysopen(my $marker, $ARGV[0], O_WRONLY | O_CREAT | O_EXCL, 0666) or exit 1;
       print {$marker} "$ARGV[1]\n" or exit 1;
@@ -585,18 +603,19 @@ cmd_announce() {
   die "note $id is saved at $path but firstmate was NOT woken"
 }
 
-# Claim the next reply sequence. The caller holds REPLY_SEQ_LOCK across the
-# claim AND the record write, so a reply a reader can see implies every lower
-# sequence is already readable: the cursor stays a strict total order.
+# Claim the next reply sequence, run inside the real replies directory. The
+# caller holds the reply lock across the claim AND the record write, so a reply
+# a reader can see implies every lower sequence is already readable: the cursor
+# stays a strict total order.
 # The claim is above both the counter and every recorded reply, and the counter
 # is replaced by rename, so a torn or lost counter can never move it backwards.
 next_reply_seq() {
-  local seq_file="$REPLIES/.seq" seq recorded tmp
+  local seq_file=.seq seq recorded tmp
   seq=$(cat "$seq_file" 2>/dev/null || printf '0')
   case "$seq" in
     ''|*[!0-9]*) seq=0 ;;
   esac
-  recorded=$(find "$REPLIES" -maxdepth 1 -type f ! -name '.*' -exec awk '
+  recorded=$(find . -maxdepth 1 -type f ! -name '.*' -exec awk '
     FNR == 1 { head = 1 }
     /^--$/ { head = 0 }
     head && /^seq=[0-9]+$/ { v = substr($0, 5) + 0; if (v > max) max = v }
@@ -606,16 +625,26 @@ next_reply_seq() {
   esac
   [ "$recorded" -le "$seq" ] || seq=$recorded
   seq=$((seq + 1))
-  tmp=$(mktemp "$REPLIES/.seq-XXXXXX") || return 1
-  if ! printf '%s\n' "$seq" >"$tmp" || ! mv "$tmp" "$seq_file"; then
+  tmp=$(mktemp ./.seq-XXXXXX) || return 1
+  if ! printf '%s\n' "$seq" >"$tmp" || ! rename_no_follow "$tmp" "$seq_file"; then
     rm -f "$tmp"
     return 1
   fi
   printf '%s\n' "$seq"
 }
 
+# The reply lock is a link to an owner directory the lock helpers create beside
+# it and later read and clean. Refuse a lock link planted to name anything else.
+reply_lock_in_inbox() {  # <lock>
+  local lock owner
+  for lock in "$1" "$1.steal"; do
+    [ -L "$lock" ] || continue
+    owner=$(fm_lock_link_owner "$lock") && [ ! -L "$owner" ] || return 1
+  done
+}
+
 cmd_reply() {
-  local json=0 id body path staging seq
+  local json=0 id body path staging seq lock
   if [ "${1:-}" = "--json" ]; then
     json=1
     shift
@@ -635,18 +664,20 @@ cmd_reply() {
     body="$*"
   fi
   [ -n "${body//[[:space:]]/}" ] || die "refusing to record an empty reply"
-  mkdir -p "$REPLIES"
+  enter_inbox_dir .replies || die "refusing to reply: $REPLIES is a link or resolves outside $INBOX"
+  lock="$INBOX_REAL/.replies.lock"
   load_wake_lib || die "the reply sequence needs $FM_ROOT/bin/fm-wake-lib.sh"
-  fm_lock_acquire_wait "$REPLY_SEQ_LOCK" || die "could not claim the reply sequence"
-  if [ -f "$REPLIES/$id" ]; then
-    fm_lock_release "$REPLY_SEQ_LOCK"
+  reply_lock_in_inbox "$lock" || die "refusing to reply: $lock names a foreign owner"
+  fm_lock_acquire_wait "$lock" || die "could not claim the reply sequence"
+  if [ -e "./$id" ] || [ -L "./$id" ]; then
+    fm_lock_release "$lock"
     die "reply already recorded for $id"
   fi
   if ! seq=$(next_reply_seq); then
-    fm_lock_release "$REPLY_SEQ_LOCK"
+    fm_lock_release "$lock"
     die "could not claim the reply sequence"
   fi
-  staging=$(mktemp "$REPLIES/.staging-XXXXXX")
+  staging=$(mktemp ./.staging-XXXXXX)
   {
     printf 'id=%s\n' "$id"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -658,8 +689,8 @@ cmd_reply() {
       *) printf '\n' ;;
     esac
   } >"$staging"
-  mv "$staging" "$REPLIES/$id"
-  fm_lock_release "$REPLY_SEQ_LOCK"
+  rename_no_follow "$staging" "./$id" || { fm_lock_release "$lock"; die "could not record the reply for $id"; }
+  fm_lock_release "$lock"
   if [ "$json" -eq 1 ]; then
     need_python
     python3 - "$id" "$REPLIES/$id" <<'PY'
@@ -1144,11 +1175,11 @@ cmd_drain() {
   if [ "${1:-}" = "--ack" ]; then
     shift
     [ "$#" -gt 0 ] || die "usage: fm-inbox.sh drain --ack <id>..."
-    mkdir -p "$INBOX/handled"
+    enter_inbox_dir handled || die "refusing to ack: $INBOX/handled is a link or resolves outside $INBOX"
     local id
     for id in "$@"; do
-      if [ -f "$INBOX/$id.note" ]; then
-        mv "$INBOX/$id.note" "$INBOX/handled/$id.note"
+      if [ -f "$INBOX_REAL/$id.note" ]; then
+        rename_no_follow "$INBOX_REAL/$id.note" "./$id.note" || die "could not ack $id"
         printf 'acked %s\n' "$id"
       else
         printf 'already-acked %s\n' "$id"
