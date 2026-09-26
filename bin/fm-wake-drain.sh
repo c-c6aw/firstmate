@@ -948,7 +948,7 @@ if [ -n "$ACK_THROUGH" ]; then
 fi
 
 if [ ! -s "$FM_WAKE_QUEUE" ]; then
-  _fm_wake_queue_extend_locked
+  : > "$FM_WAKE_QUEUE"
   fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
   RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
   case "$RECOVERY_MARKER_TOKEN" in

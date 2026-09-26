@@ -662,9 +662,6 @@ fm_recovery_marker_read() {
 }
 
 _fm_atomic_replace() {
-  if [ -d "$2" ]; then
-    [ -L "$2" ] && rm -f -- "$2" || return 1
-  fi
   mv -f -- "$1" "$2"
 }
 
@@ -1931,18 +1928,6 @@ fm_wake_clean_field() {
   LC_ALL=C tr '\t\r\n' '   '
 }
 
-# The queue and its counter are written to a fresh temp and renamed into place,
-# so a symlink at either path is replaced, never written through.
-_fm_wake_seq_write() {  # <seq>
-  local tmp
-  tmp=$(mktemp "$FM_WAKE_QUEUE_SEQ.XXXXXX") || return 1
-  if printf '%s\n' "$1" > "$tmp" && _fm_atomic_replace "$tmp" "$FM_WAKE_QUEUE_SEQ"; then
-    return 0
-  fi
-  rm -f -- "$tmp"
-  return 1
-}
-
 # Run <command> with the queue's rows on stdin, read through an O_NOFOLLOW
 # open: an absent, symlinked or non-regular queue reads as empty, so a queue
 # rewrite never copies a link target in. An unreadable queue fails.
@@ -1967,18 +1952,6 @@ _fm_wake_queue_pipe() {  # <queue> <command>...
   printf '%s' "$rows" | "$@"
 }
 
-_fm_wake_queue_extend_locked() {  # [row]
-  local tmp
-  tmp=$(mktemp "$FM_WAKE_QUEUE.XXXXXX") || return 1
-  if _fm_wake_queue_pipe "$FM_WAKE_QUEUE" cat > "$tmp" \
-    && { [ "$#" -eq 0 ] || printf '%s\n' "$1" >> "$tmp"; } \
-    && _fm_atomic_replace "$tmp" "$FM_WAKE_QUEUE"; then
-    return 0
-  fi
-  rm -f -- "$tmp"
-  return 1
-}
-
 fm_wake_append() {
   local status=0
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
@@ -1995,7 +1968,7 @@ fm_wake_append() {
 # their own write, then release.
 fm_wake_append_locked() {
   local kind=$1 key=$2 payload=$3 clean_key clean_payload epoch seq seq_file status
-  local recovery_marker row
+  local recovery_marker
   case "$kind" in
     signal|stale|check|heartbeat) ;;
     *) printf 'fm_wake_append: invalid wake kind: %s\n' "$kind" >&2; return 2 ;;
@@ -2010,19 +1983,15 @@ fm_wake_append_locked() {
 
   _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
   if [ "$status" -eq 0 ]; then
-    seq=0
-    [ ! -e "$seq_file" ] || seq=$(cat -- "$seq_file") || status=1
+    seq=$(cat "$seq_file" 2>/dev/null || echo 0)
     case "$seq" in
       ''|*[!0-9]*) seq=0 ;;
     esac
     seq=$((seq + 1))
+    printf '%s\n' "$seq" > "$seq_file" || status=$?
   fi
   if [ "$status" -eq 0 ]; then
-    _fm_wake_seq_write "$seq" || status=$?
-  fi
-  if [ "$status" -eq 0 ]; then
-    printf -v row '%s\t%s\t%s\t%s\t%s' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload"
-    _fm_wake_queue_extend_locked "$row" || status=$?
+    printf '%s\t%s\t%s\t%s\t%s\n' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload" >> "$FM_WAKE_QUEUE" || status=$?
   fi
   return "$status"
 }
@@ -2709,12 +2678,11 @@ _fm_wake_fold_legacy() {
   [ ! -e "$STATE/../.fm-secondmate-home" ] || [ "$STATE/../bin" -ef "$FM_WAKE_LIB_DIR" ] || return 0
   fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK" || return 0
   old_seq=$(cat "$legacy_seq" 2>/dev/null || echo 0)
-  new_seq=0
-  [ ! -e "$FM_WAKE_QUEUE_SEQ" ] || new_seq=$(cat -- "$FM_WAKE_QUEUE_SEQ" 2>/dev/null) || old_seq=0
+  new_seq=$(cat "$FM_WAKE_QUEUE_SEQ" 2>/dev/null || echo 0)
   case "$old_seq" in ''|*[!0-9]*) old_seq=0 ;; esac
   case "$new_seq" in ''|*[!0-9]*) new_seq=0 ;; esac
   if [ "$old_seq" -gt "$new_seq" ]; then
-    _fm_wake_seq_write "$old_seq" || true
+    printf '%s\n' "$old_seq" > "$FM_WAKE_QUEUE_SEQ" || true
   fi
   if [ ! -w "$STATE" ] || ! fm_lock_try_acquire "$STATE/.wake-queue.lock"; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
