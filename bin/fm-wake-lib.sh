@@ -2648,6 +2648,7 @@ _fm_wake_fold_legacy() {
   local legacy="$STATE/.wake-queue" legacy_seq="$STATE/.wake-queue.seq"
   local legacy_marker="$STATE/.watcher-down" old_seq new_seq kind key payload folded=0
   [ -e "$legacy" ] || [ -e "$legacy_seq" ] || [ -e "$legacy_marker" ] || return 0
+  [ "$FM_WAKE_QUEUE" = "$FM_WAKE_DIR/queue" ] && [ "$FM_WAKE_QUEUE_LOCK" = "$FM_WAKE_DIR/queue.lock" ] || return 0
   [ -w "$STATE" ] || return 0
   fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK" || return 0
   if ! fm_lock_try_acquire "$STATE/.wake-queue.lock"; then

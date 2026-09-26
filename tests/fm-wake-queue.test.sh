@@ -2866,6 +2866,45 @@ test_legacy_top_level_queue_is_folded() {
   pass "a pre-subdirectory home's queue, counter and recovery marker are folded into state/wake"
 }
 
+# An older Pi extension still running in memory hands the new grant script the
+# legacy queue as FM_WAKE_QUEUE; folding into that path would append to the
+# file being read and never finish.
+test_legacy_fold_skips_non_canonical_queue() {
+  local dir state rc=0 row
+  dir=$(make_case legacy-fold-self)
+  state="$dir/state"
+  row=$(printf '100\t41\tcheck\tlegacy-a\tcheck: legacy a')
+  printf '%s\n' "$row" > "$state/.wake-queue"
+  FM_STATE_OVERRIDE="$state" FM_WAKE_QUEUE="$state/.wake-queue" \
+    FM_WAKE_QUEUE_LOCK="$state/.wake-queue.lock" timeout 10 bash "$ROOT/bin/fm-wake-lib.sh" || rc=$?
+  assert_equals 0 "$rc" "sourcing the lib with the legacy queue path must return promptly"
+  assert_equals "$row" "$(cat "$state/.wake-queue")" "a non-canonical queue must be left unchanged"
+  pass "the legacy fold runs only into the canonical state/wake queue"
+}
+
+# A local mate home on either queue layout (upgraded, or left on older code by
+# /updatefirstmate) must still be observed by the stall tick.
+test_secondmate_stall_reads_either_queue_layout() {
+  local dir state sub layout
+  for layout in wake/queue .wake-queue; do
+    dir=$(make_case "secondmate-stall-layout-${layout//[\/.]/_}")
+    state="$dir/state"
+    sub="$dir/secondmate"
+    mkdir -p "$sub/state/wake"
+    printf 'mate\n' > "$sub/.fm-secondmate-home"
+    printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+      "$sub" > "$state/mate.meta"
+    printf '100\t7\tcheck\trouted\tcheck: routed row\n' > "$sub/state/$layout"
+    FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" bash -c '
+      . "$1"
+      secondmate_wake_stall_tick
+    ' _ "$WATCH" || fail "stall tick failed for a mate on the $layout layout"
+    assert_equals "100-7" "$(cut -f2 "$state/.secondmate-wake-progress-mate" 2>/dev/null)" \
+      "stall tick must observe a mate's oldest row on the $layout layout"
+  done
+  pass "secondmate stall tick observes a mate queue on either layout"
+}
+
 # --- secondmate endpoint liveness tick ---------------------------------------
 # bin/fm-watch.sh's secondmate_liveness_tick drives the shared
 # bin/fm-secondmate-liveness-lib.sh probe+relaunch machinery during ordinary
@@ -3423,6 +3462,8 @@ test_recovery_ack_failure_is_reported
 test_interruption_before_and_after_raw_commit
 test_wake_queue_prune_task
 test_legacy_top_level_queue_is_folded
+test_legacy_fold_skips_non_canonical_queue
+test_secondmate_stall_reads_either_queue_layout
 test_secondmate_liveness_tick_relaunches_dead_endpoint_once
 test_secondmate_liveness_tick_relaunches_missing_endpoint
 test_secondmate_liveness_tick_relaunches_every_dead_mate_before_waking
