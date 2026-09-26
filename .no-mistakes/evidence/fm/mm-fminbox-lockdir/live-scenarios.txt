@@ -1,0 +1,146 @@
+===== S0 baseline: base commit e9a6675 importer in the same sandbox =====
+
+$ sandboxed: <base>/bin/fm-inbox.sh note 'sample proposal (base)'
+rc=124
+
+$ find state (base)
+
+inbox
+inbox/1790456860-bMRDuT.note
+
+===== S1 sandboxed importer files a note with only state/inbox writable =====
+
+$ sandboxed: fm-inbox.sh note --no-announce --request-id sample-42 --json 'sample proposal 42'
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1790456890-3RP19Q","request_id":"sample-42","saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-scen.VLSN40/lab.Vlhgk3/state/inbox/1790456890-3RP19Q.note"}
+rc=0
+
+$ sandboxed replay: same request id
+{"schema":"fm-inbox-note.v1","outcome":"replay","id":"1790456890-3RP19Q","request_id":"sample-42","saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-scen.VLSN40/lab.Vlhgk3/state/inbox/1790456890-3RP19Q.note"}
+rc=0
+
+$ sandboxed: try to plant state/evil.check.sh and state/wake/queue.lock
+sh: line 1: /tmp/fm-scen.VLSN40/lab.Vlhgk3/state/evil.check.sh: Read-only file system
+rc=1
+mkdir: cannot create directory ‘/tmp/fm-scen.VLSN40/lab.Vlhgk3/state/wake/queue.lock’: Read-only file system
+rc=1
+RESULT: nothing outside state/inbox changed (inode/size/mtime snapshot identical)
+
+$ find state/inbox
+
+1790456890-3RP19Q.note
+1790456890-pNHjHZ.note
+.announced
+.announced/1790456890-pNHjHZ
+.requests
+.requests/sample-42
+wake rows for the new note before watcher: 1
+
+===== S2 real watcher announces the unannounced note; primary drains it =====
+[watcher exited after ~0s with its wake]
+
+$ watch.log
+check: rearm-resurface
+
+$ state/wake/queue
+1790456890	1	check	inbox:1790456890-pNHjHZ	check: captain inbox note 1790456890-pNHjHZ - initialize home
+
+$ state/inbox/.announced
+1790456890-pNHjHZ
+
+$ fm-wake-drain.sh (what the primary runs)
+1790456890	1	check	inbox:1790456890-pNHjHZ	check: captain inbox note 1790456890-pNHjHZ - initialize home
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 626314.1790456890.PTEfqc
+
+$ fm-wake-drain.sh --ack-through 1 --recovery-generation 626314.1790456890.PTEfqc
+
+$ second watcher run: no re-announce (6s)
+[watcher exited after ~0s with its wake]
+inbox wake rows before=0
+0 after=1
+
+===== S3 unsandboxed note (default announce) keeps queue/locks inside state/wake =====
+
+$ fm-inbox.sh note 'primary-side note'
+queued 1790456899-DCPsYJ
+  primary-side note
+  firstmate will pick this up at its next check.
+rc=0
+
+$ top-level entries of state/
+inbox
+wake
+
+$ state/wake
+queue
+queue.seq
+watcher-down
+1790456899	1	check	inbox:1790456899-DCPsYJ	check: captain inbox note 1790456899-DCPsYJ - primary-side note
+
+===== S4 adversarial: importer plants announce-marker links; watcher writes nothing outside =====
+
+$ sandboxed: mkdir .announced; ln -s ../../.afk .announced/1790456899-myM4nR (dangling)
+rc=0
+[watcher still running after 0s]
+RESULT: state/.afk not created
+
+$ sandboxed: replace .announced with a link to config/ and file note B
+[watcher exited after ~0s with its wake]
+config/ before: [] after: []
+
+$ primary: fm-inbox.sh announce <note B> through the linked .announced
+fm-inbox: note 1790456906-cswgkd is saved at /tmp/fm-scen.VLSN40/lab.I2CHPJ/state/inbox/1790456906-cswgkd.note but firstmate was NOT woken
+rc=1
+config/ after announce: []
+RESULT: no write escaped state/inbox
+
+===== S5 adversarial: importer races a FIFO under a note; watcher keeps polling =====
+max concurrent header-probe sed processes observed during race: 3
+watcher alive: yes; beacon age: 5s
+
+$ sandboxed: file a real note after the race
+[watcher exited after ~2s with its wake]
+check: captain inbox note announced: 1790456941-X2f0gs
+
+===== S6 reply lock lives in state/wake; planted inbox links are refused =====
+
+$ sandboxed: plant the old reply-lock name .replies.lock -> config/
+
+$ primary: fm-inbox.sh reply 1790456944-2uyhNI 'on it'
+replied 1790456944-2uyhNI
+rc=0
+config/: []  inbox/.replies: [1790456944-2uyhNI
+.seq]  state/wake: []
+
+$ primary: fm-inbox.sh receipts
+[('1790456944-2uyhNI', 'on it')]
+
+$ primary: reply through planted .replies -> config/
+fm-inbox: refusing to reply: /tmp/fm-scen.VLSN40/lab.0qbZ4P/state/inbox/.replies is a link or resolves outside /tmp/fm-scen.VLSN40/lab.0qbZ4P/state/inbox
+rc=1
+
+$ primary: drain --ack through planted handled -> config/
+fm-inbox: refusing to ack: /tmp/fm-scen.VLSN40/lab.0qbZ4P/state/inbox/handled is a link or resolves outside /tmp/fm-scen.VLSN40/lab.0qbZ4P/state/inbox
+rc=1
+config/: []  note still pending: yes
+
+$ primary (clean home): drain --ack 1790456944-2uyhNI
+acked 1790456944-2uyhNI
+1790456944-2uyhNI.note
+
+===== S7 upgraded home: legacy state/.wake-queue folds into state/wake =====
+
+$ fm-wake-drain.sh on the upgraded home
+1790456944	8	check	inbox:legacy-1	check: captain inbox note legacy-1 - queued before upgrade
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 8 --recovery-generation 659253.1790456944.OHhVYL
+
+$ top-level state/ after
+inbox
+.main-eligible-rows
+wake
+
+$ state/wake/queue
+1790456944	8	check	inbox:legacy-1	check: captain inbox note legacy-1 - queued before upgrade
+
+$ new note lands above the legacy counter
+8	inbox:legacy-1
+9	inbox:1790456945-NeiAXn
