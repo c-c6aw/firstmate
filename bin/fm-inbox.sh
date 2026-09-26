@@ -65,12 +65,13 @@
 # `note --no-announce` saves the note and appends no wake: it creates entries
 # only under state/inbox/, takes no lock and never loads the wake library, so a
 # sandboxed caller is granted just state/inbox/ writable. The watcher announces
-# such a note through `announce` (bin/fm-watch.sh inbox_announce_pending). No
-# sandboxed writer is ever given state/wake/ (tests/fm-inbox.test.sh pins this).
-# Because that caller can plant links in state/inbox/, `reply`, `drain --ack`
-# and the announcement marker write only inside the real .replies/, handled/ and
-# .announced/ directories, and refuse such a directory, or a reply lock, that is
-# a link or resolves anywhere else.
+# such a note through `announce` (bin/fm-watch.sh inbox_announce_pending). A
+# sandboxed importer binds only state/inbox/ and never state/wake/, so every
+# lock, including the reply lock state/wake/replies.lock, stays out of its reach
+# (tests/fm-inbox.test.sh pins this). Because that caller can plant links in
+# state/inbox/, `reply`, `drain --ack` and the announcement marker write only
+# inside the real .replies/, handled/ and .announced/ directories, and refuse
+# such a directory that is a link or resolves anywhere else.
 # `ready` is the read-only primary-readiness projection (lock, wake-consumer
 # health, away posture, observation time). It never acquires the session lock
 # and never infers liveness from a lock file, a session, or a pane.
@@ -633,16 +634,6 @@ next_reply_seq() {
   printf '%s\n' "$seq"
 }
 
-# The reply lock is a link to an owner directory the lock helpers create beside
-# it and later read and clean. Refuse a lock link planted to name anything else.
-reply_lock_in_inbox() {  # <lock>
-  local lock owner
-  for lock in "$1" "$1.steal"; do
-    [ -L "$lock" ] || continue
-    owner=$(fm_lock_link_owner "$lock") && [ ! -L "$owner" ] || return 1
-  done
-}
-
 cmd_reply() {
   local json=0 id body path staging seq lock
   if [ "${1:-}" = "--json" ]; then
@@ -665,9 +656,8 @@ cmd_reply() {
   fi
   [ -n "${body//[[:space:]]/}" ] || die "refusing to record an empty reply"
   enter_inbox_dir .replies || die "refusing to reply: $REPLIES is a link or resolves outside $INBOX"
-  lock="$INBOX_REAL/.replies.lock"
   load_wake_lib || die "the reply sequence needs $FM_ROOT/bin/fm-wake-lib.sh"
-  reply_lock_in_inbox "$lock" || die "refusing to reply: $lock names a foreign owner"
+  lock="$FM_WAKE_DIR/replies.lock"
   fm_lock_acquire_wait "$lock" || die "could not claim the reply sequence"
   if [ -e "./$id" ] || [ -L "./$id" ]; then
     fm_lock_release "$lock"
