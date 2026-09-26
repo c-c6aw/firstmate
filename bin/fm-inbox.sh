@@ -62,6 +62,10 @@
 # Each reply is stamped with a durable per-home sequence, so the receipts cursor
 # is a strict total order and two replies recorded in the same second are both
 # readable. One reply per note: a second one is refused.
+# `note`, `announce` and `reply` create, replace, remove and lock entries only
+# under state/inbox/ and state/wake/ (the wake queue, bin/fm-wake-lib.sh), never
+# at the top level of state/, so a sandboxed caller can be granted just those
+# two directories writable (tests/fm-inbox.test.sh pins this).
 # `ready` is the read-only primary-readiness projection (lock, wake-consumer
 # health, away posture, observation time). It never acquires the session lock
 # and never infers liveness from a lock file, a session, or a pane.

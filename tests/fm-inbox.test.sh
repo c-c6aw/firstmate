@@ -51,8 +51,8 @@ count_notes() {
 }
 
 count_wakes() {
-  if [ -f "$1/state/.wake-queue" ]; then
-    grep -c 'inbox:' "$1/state/.wake-queue" || true
+  if [ -f "$1/state/wake/queue" ]; then
+    grep -c 'inbox:' "$1/state/wake/queue" || true
   else
     printf '0\n'
   fi
@@ -544,3 +544,61 @@ run_inbox "$home" drain --ack "$did" >/dev/null || fail "drain --ack failed"
 assert_absent "$home/state/inbox/$did.note" "acked note leaves pending"
 assert_present "$home/state/inbox/handled/$did.note" "acked note is in handled"
 pass "drain --ack still moves the note to handled"
+
+# --- note, announce and reply touch only state/inbox and state/wake ---------
+# A sandboxed importer is granted just those two directories writable. With the
+# top level of state/ read-only, every write path must still succeed and leave
+# no top-level entry created, removed, replaced or re-timed.
+
+top_level_snapshot() {  # <state-dir>
+  python3 - "$1" <<'PY'
+import os, sys
+state = sys.argv[1]
+st = os.lstat(state)
+print("state", st.st_mtime_ns)
+for name in sorted(os.listdir(state)):
+    st = os.lstat(os.path.join(state, name))
+    # The two granted directories' own mtimes change when their contents do.
+    mtime = "-" if name in ("inbox", "wake") else st.st_mtime_ns
+    print(name, st.st_ino, st.st_mode, mtime)
+PY
+}
+
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$ROOT/bin/fm-timeout-lib.sh"
+
+# Bounded, so a regression that spins on a lock it cannot create fails here
+# instead of hanging the suite.
+run_inbox_bounded() {
+  local home=$1
+  shift
+  fm_run_timed 30 env FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" "$INBOX_BIN" "$@"
+}
+
+home=$(make_home sandbox-top-level)
+run_inbox "$home" note "initialize the home" >/dev/null || fail "initializing note failed"
+pending_out=$(run_inbox "$home" note --json "announce me later") || fail "pending note failed"
+pending_id=$(printf '%s' "$pending_out" | json_get id)
+rm -f "$home/state/inbox/.announced/$pending_id"
+wakes_before=$(count_wakes "$home")
+before=$(top_level_snapshot "$home/state")
+chmod a-w "$home/state"
+set +e
+sandbox_note_out=$(run_inbox_bounded "$home" note "filed from the sandbox" 2>&1)
+sandbox_note_code=$?
+sandbox_announce_out=$(run_inbox_bounded "$home" announce "$pending_id" 2>&1)
+sandbox_announce_code=$?
+sandbox_reply_out=$(run_inbox_bounded "$home" reply "$pending_id" "answered from the sandbox" 2>&1)
+sandbox_reply_code=$?
+set -e
+chmod u+w "$home/state"
+after=$(top_level_snapshot "$home/state")
+expect_code 0 "$sandbox_note_code" "note with read-only state/ top level: $sandbox_note_out"
+expect_code 0 "$sandbox_announce_code" "announce with read-only state/ top level: $sandbox_announce_out"
+expect_code 0 "$sandbox_reply_code" "reply with read-only state/ top level: $sandbox_reply_out"
+assert_equals "$((wakes_before + 2))" "$(count_wakes "$home")" \
+  "the sandboxed note and announce each append one wake"
+assert_present "$home/state/inbox/.replies/$pending_id" "the sandboxed reply is recorded"
+assert_equals "$before" "$after" "no top-level state/ entry may be touched"
+pass "note, announce and reply write only under state/inbox and state/wake"

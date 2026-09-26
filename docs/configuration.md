@@ -83,7 +83,8 @@ Each effective `FM_HOME` contains private operational directories.
 `state/` holds runtime records:
 
 - Task metadata, append-only status events, and endpoint signals.
-- Watcher and wake-queue coordination, away-mode state, and generated Relay artifacts.
+- Watcher coordination, away-mode state, and generated Relay artifacts.
+- The durable wake queue under `state/wake/` (`bin/fm-wake-lib.sh`): everything a wake append creates, replaces, or locks lives there, so a sandboxed note producer needs only `state/inbox/` and `state/wake/` writable (`bin/fm-inbox.sh`).
 - Inactive terminal-outcome receipts under `state/terminal-outcomes/`.
 - Enabled extension working namespaces under `state/extensions/`.
 - Parent-side remote ledger copies under `state/secondmate-summary-cache/`.
