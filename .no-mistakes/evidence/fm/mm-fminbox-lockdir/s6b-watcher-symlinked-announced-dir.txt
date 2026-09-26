@@ -1,0 +1,38 @@
+=== Scenario 6b (continued): primary drains/acks, then the watcher polls with .announced -> ../../config ===
+drain exit=0
+1790451113	4	check	inbox:1790450736-QpIogU	check: captain inbox note 1790450736-QpIogU - Planner proposal P-9: poisoned marker
+1790451113	5	check	inbox:1790451113-M8DBsP	check: captain inbox note 1790451113-M8DBsP - Planner proposal P-10: symlinked marker dir
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 5 --recovery-generation 1851811.1790451113.yMT3VU
+acked 1790450736-QpIogU
+acked 1790451113-M8DBsP
+ack exit=0 queue=''
+queued 1790451129-pepu9x
+$ FM_HOME=$LAB FM_POLL=1 timeout 8 bin/fm-watch.sh
+Terminated                 sleep "$POLL"
+watcher exit=124 (124 = kept polling, announced nothing, killed by the 8s bound)
+beacon advanced: 1790451113 -> 1790451136
+config/ tree before: . ./precious ./precious/pid ./precious/role ./precious/settings 
+config/ tree after:  . ./precious ./precious/pid ./precious/role ./precious/settings 
+wake queue: ''
+
+=== importer restores a real .announced directory: the watcher announces P-11 on its next poll ===
+check: rearm-resurface
+watcher exit=0
+wake queue:
+drain exit=0
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation 1859458.1790451137.Ix1Okj
+ack exit=0
+$ FM_HOME=$LAB FM_POLL=1 bin/fm-watch.sh
+check: captain inbox note announced: 1790451129-pepu9x
+watcher exit=0
+wake queue:
+1790451146	6	check	inbox:1790451129-pepu9x	check: captain inbox note 1790451129-pepu9x - Planner proposal P-11: filed while .announced is a symlink
+.announced:
+total 16
+drwxr-xr-x 2 c6aw c6aw 140 Sep 26 14:32 .
+drwxr-xr-x 6 c6aw c6aw 180 Sep 26 14:32 ..
+-rw-r--r-- 1 c6aw c6aw  21 Sep 26 14:25 1790450712-I50o4v
+-rw-r--r-- 1 c6aw c6aw  21 Sep 26 14:26 1790450723-eAwymc
+-rw-r--r-- 1 c6aw c6aw  21 Sep 26 14:26 1790450723-QUAk8l
+lrwxrwxrwx 1 c6aw c6aw  10 Sep 26 14:25 1790450736-QpIogU -> ../../.afk
+-rw-r--r-- 1 c6aw c6aw  21 Sep 26 14:32 1790451129-pepu9x

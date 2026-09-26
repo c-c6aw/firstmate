@@ -1,0 +1,43 @@
+=== Scenario 7: upgrade - a home written by the pre-change code is folded into state/wake ===
+$ (base e9a6675) fm-inbox.sh note x2
+queued 1790451161-H0v2vS
+queued 1790451161-O0SaCA
+--- state/ top level (legacy layout) ---
+inbox
+.wake-queue
+.wake-queue.seq
+.watcher-down
+--- state/.wake-queue ---
+1790451161	1	check	inbox:1790451161-H0v2vS	check: captain inbox note 1790451161-H0v2vS - Legacy note A (queued before upgrade)
+1790451161	2	check	inbox:1790451161-O0SaCA	check: captain inbox note 1790451161-O0SaCA - Legacy note B (queued before upgrade)
+legacy seq: 2
+
+$ (upgraded) bin/fm-wake-drain.sh
+exit=0
+1790451161	3	check	inbox:1790451161-H0v2vS	check: captain inbox note 1790451161-H0v2vS - Legacy note A (queued before upgrade)
+1790451161	4	check	inbox:1790451161-O0SaCA	check: captain inbox note 1790451161-O0SaCA - Legacy note B (queued before upgrade)
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 4 --recovery-generation 1871180.1790451161.yKoUeP
+--- state/ top level after fold ---
+inbox
+.main-eligible-rows
+wake
+--- state/wake ---
+queue
+queue.seq
+watcher-down
+new seq: 4
+
+=== a still-running pre-change process appends after the upgrade ===
+queued 1790451161-01DFOv
+legacy queue reappeared: 1790451161	1	check	inbox:1790451161-01DFOv	check: captain inbox note 1790451161-01DFOv - Legacy note C (from an old process after upgrade)
+$ (upgraded) bin/fm-inbox.sh note 'New note D'
+queued 1790451161-jbjSU5
+--- state/ top level ---
+inbox
+.main-eligible-rows
+wake
+--- state/wake/queue (C folded, D appended; every seq above the legacy counter) ---
+1790451161	3	check	inbox:1790451161-H0v2vS	check: captain inbox note 1790451161-H0v2vS - Legacy note A (queued before upgrade)
+1790451161	4	check	inbox:1790451161-O0SaCA	check: captain inbox note 1790451161-O0SaCA - Legacy note B (queued before upgrade)
+1790451161	5	check	inbox:1790451161-01DFOv	check: captain inbox note 1790451161-01DFOv - Legacy note C (from an old process after upgrade)
+1790451161	6	check	inbox:1790451161-jbjSU5	check: captain inbox note 1790451161-jbjSU5 - New note D (upgraded code)

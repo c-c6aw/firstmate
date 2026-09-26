@@ -1,0 +1,5 @@
+=== Pre-existing check: primary's fm-inbox.sh list/receipts with a FIFO note planted in state/inbox ===
+BASE e9a6675     list:     exit=124 (124 = blocked until timeout)
+BASE e9a6675     receipts: exit=124 (124 = blocked until timeout)
+CHANGE 5509a9e   list:     exit=124 (124 = blocked until timeout)
+CHANGE 5509a9e   receipts: exit=124 (124 = blocked until timeout)

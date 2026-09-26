@@ -1,0 +1,12 @@
+ok - a pre-subdirectory home's queue, counter and recovery marker are folded into state/wake
+ok - the legacy fold runs only into the canonical state/wake queue
+ok - the legacy fold leaves another home's secondmate state untouched
+ok - watcher announces an inbox note saved without announce
+ok - inbox announcement never writes through a link planted in state/inbox
+ok - the watcher bounds a blocking read of an inbox note
+ok - lock links to foreign directories are removed, never followed
+ok - queue prune and acknowledgement never copy a symlinked queue's target
+ok - secondmate stall tick observes a mate queue on either layout
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1894690.1790451199.kNkgIN
+ok - concurrent append plus drain preserves durable records through acknowledgement
+subset exit=0

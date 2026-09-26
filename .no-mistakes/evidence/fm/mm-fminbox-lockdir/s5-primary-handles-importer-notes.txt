@@ -1,0 +1,58 @@
+=== Scenario 5: primary drains the importer's notes, replies (past a planted .replies.lock link), acks ===
+$ bin/fm-wake-drain.sh
+exit=0
+1790450761	2	check	inbox:1790450723-eAwymc	check: captain inbox note 1790450723-eAwymc - Planner proposal P-7: rebalance the watchlist
+1790450761	3	check	inbox:1790450723-QUAk8l	check: captain inbox note 1790450723-QUAk8l - Planner proposal P-8: pause the rebalance cron
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 1751867.1790450761.3i4GbG
+
+$ bin/fm-inbox.sh list
+1790450000-fifo
+Terminated                 env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS -u FM_ROOT_OVERRIDE -u FM_STATE_OVERRIDE -u FM_DATA_OVERRIDE -u FM_CONFIG_OVERRIDE -u FM_PROJECTS_OVERRIDE -u TMUX TMUX_TMPDIR="$LAB/tmux" FM_HOME="$LAB" "$@"
+exit=143
+
+$ bin/fm-inbox.sh reply 1790450723-eAwymc 'Approved: rebalance at the next window'   (state/inbox/.replies.lock -> $LAB/config/precious)
+replied 1790450723-eAwymc
+exit=0
+--- precious dir after (must be intact, same name, same files) ---
+total 0
+drwxr-xr-x 3 c6aw c6aw  60 Sep 26 14:25 .
+drwxr-xr-x 7 c6aw c6aw 280 Sep 26 14:26 ..
+drwxr-xr-x 2 c6aw c6aw 100 Sep 26 14:25 precious
+total 12
+drwxr-xr-x 2 c6aw c6aw 100 Sep 26 14:25 .
+drwxr-xr-x 3 c6aw c6aw  60 Sep 26 14:25 ..
+-rw-r--r-- 1 c6aw c6aw   8 Sep 26 14:25 pid
+-rw-r--r-- 1 c6aw c6aw   8 Sep 26 14:25 role
+-rw-r--r-- 1 c6aw c6aw   5 Sep 26 14:25 settings
+1742303
+keep-me
+data
+--- .replies.lock now: ls: cannot access '/tmp/fm-lab.8Ss3Yz/state/inbox/.replies.lock': No such file or directory
+
+$ bin/fm-inbox.sh receipts (reply recorded)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; d=json.load(sys.stdin); [print(k, json.dumps(v)[:400]) for k,v in d.items()]
+                       ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+$ bin/fm-inbox.sh drain --ack 1790450723-eAwymc 1790450723-QUAk8l
+acked 1790450723-eAwymc
+acked 1790450723-QUAk8l
+exit=0
+$ bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 1751867.1790450761.3i4GbG
+exit=0
+--- queue now: ''

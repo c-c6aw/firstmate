@@ -1,0 +1,28 @@
+=== Primary handles the captain note, acknowledges, re-arms ===
+$ bin/fm-inbox.sh drain --ack 1790450712-I50o4v
+acked 1790450712-I50o4v
+exit=0
+$ bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1733657.1790450712.ft5Xv4
+exit=0
+--- queue now: ''
+
+=== Scenario 4: watcher cycle 2 ===
+$ FM_HOME=$LAB FM_POLL=1 bin/fm-watch.sh
+check: captain inbox note announced: 1790450723-eAwymc 1790450723-QUAk8l
+watcher exit=0 after 1s
+stderr:
+--- state/wake/queue ---
+1790450761	2	check	inbox:1790450723-eAwymc	check: captain inbox note 1790450723-eAwymc - Planner proposal P-7: rebalance the watchlist
+1790450761	3	check	inbox:1790450723-QUAk8l	check: captain inbox note 1790450723-QUAk8l - Planner proposal P-8: pause the rebalance cron
+--- .announced ---
+total 12
+drwxr-xr-x 2 c6aw c6aw 120 Sep 26 14:26 .
+drwxr-xr-x 5 c6aw c6aw 220 Sep 26 14:26 ..
+-rw-r--r-- 1 c6aw c6aw  21 Sep 26 14:25 1790450712-I50o4v
+-rw-r--r-- 1 c6aw c6aw  21 Sep 26 14:26 1790450723-eAwymc
+-rw-r--r-- 1 c6aw c6aw  21 Sep 26 14:26 1790450723-QUAk8l
+lrwxrwxrwx 1 c6aw c6aw  10 Sep 26 14:25 1790450736-QpIogU -> ../../.afk
+--- state/.afk exists? no
+--- FIFO / symlink notes still present and untouched ---
+prw-r--r-- 1 c6aw c6aw   0 Sep 26 14:25 1790450000-fifo.note
+lrwxrwxrwx 1 c6aw c6aw  20 Sep 26 14:25 1790450001-link.note -> 1790450000-fifo.note

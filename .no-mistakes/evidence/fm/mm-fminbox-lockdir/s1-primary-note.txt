@@ -1,0 +1,18 @@
+=== Scenario 1: unsandboxed Firstmate note (voice-relay/captain path) queues its wake under state/wake ===
+$ FM_HOME=$LAB bin/fm-inbox.sh note 'Captain: check the nightly backup'
+queued 1790450712-I50o4v
+  Captain: check the nightly backup
+  firstmate will pick this up at its next check.
+exit=0
+--- state/ tree ---
+./inbox
+./inbox/1790450712-I50o4v.note
+./inbox/.announced
+./inbox/.announced/1790450712-I50o4v
+./wake
+./wake/queue
+./wake/queue.seq
+./wake/watcher-down
+--- state/wake/queue ---
+1790450712	1	check	inbox:1790450712-I50o4v	check: captain inbox note 1790450712-I50o4v - Captain: check the nightly backup
+--- legacy top-level entries (.wake-queue*, .watcher-down): 0

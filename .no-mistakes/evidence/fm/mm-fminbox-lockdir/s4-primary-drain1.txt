@@ -1,0 +1,6 @@
+=== Primary drain after cycle 1 ===
+$ bin/fm-wake-drain.sh
+exit=0
+1790450712	1	check	inbox:1790450712-I50o4v	check: captain inbox note 1790450712-I50o4v - Captain: check the nightly backup
+--- stderr ---
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1733657.1790450712.ft5Xv4

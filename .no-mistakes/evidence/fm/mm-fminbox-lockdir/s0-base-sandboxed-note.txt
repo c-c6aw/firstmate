@@ -1,0 +1,7 @@
+=== Scenario 0 (BEFORE, base e9a6675): planner importer sandboxed to state/inbox only runs fm-inbox.sh note ===
+$ bwrap --ro-bind / / --bind $HOME/state/inbox $HOME/state/inbox ... timeout 20 /tmp/fm-base.ASp0bc/bin/fm-inbox.sh note 'Planner proposal P-1'
+exit=124 elapsed=20s  (124 = killed by timeout)
+--- state/ after (base layout) ---
+./inbox
+./inbox/1790450685-ONOwee.note
+--- wake queue rows: 0
