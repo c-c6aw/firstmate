@@ -1,0 +1,20 @@
+## Scenario: importer plants a dangling .announced/<id> link; watcher must not write through it
+note id=1790521741-70PYyY (saved from sandbox with --no-announce)
+planted: /tmp/fm-lab.mKnWqu/state/inbox/.announced/1790521741-70PYyY -> ../../.afk
+$ FM_HOME=$LAB bin/fm-watch.sh (60s cap)
+Terminated                 sleep "$POLL"
+watcher exit=124
+state/.afk exists? no
+queue rows naming 1790521741-70PYyY: 0
+
+## Scenario: importer replaces .announced with a link to an outside directory
+note id=1790521801-4OZuAr; .announced -> /tmp/fm-lab-outside.Mlaz9W
+check: rearm-resurface
+watcher exit=0 (124 = still blocking normally after poll, no wake)
+$ ls -A outside dir (expect empty):
+(end)
+$ direct announce by primary:
+fm-inbox: note 1790521801-4OZuAr is saved at /tmp/fm-lab.mKnWqu/state/inbox/1790521801-4OZuAr.note but firstmate was NOT woken
+exit=1
+$ ls -A outside dir (expect empty):
+(end)

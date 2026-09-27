@@ -1,0 +1,27 @@
+## Scenario: lock link planted to a foreign directory is not followed (rename/delete)
+planted: state/wake/queue.lock -> /tmp/fm-lab-outside.Mlaz9W/victim (pid=999999 dead)
+total 12
+drwxr-xr-x 2 c6aw c6aw 100 Sep 27 10:10 .
+drwx------ 3 c6aw c6aw  60 Sep 27 10:10 ..
+-rw-r--r-- 1 c6aw c6aw   5 Sep 27 10:10 important
+-rw-r--r-- 1 c6aw c6aw   7 Sep 27 10:10 pid
+-rw-r--r-- 1 c6aw c6aw   5 Sep 27 10:10 role
+$ bin/fm-inbox.sh note 'primary note under planted lock' (unsandboxed, appends a wake)
+queued 1790521856-gj2Rl1
+  primary note under planted lock
+  firstmate will pick this up at its next check.
+exit=0
+$ ls -la foreign dir after (expect pid, role, important intact; no .reaped rename):
+total 0
+drwx------    3 c6aw c6aw    60 Sep 27 10:10 .
+drwxrwxrwt 1557 root root 40320 Sep 27 10:10 ..
+drwxr-xr-x    2 c6aw c6aw   100 Sep 27 10:10 victim
+total 12
+drwxr-xr-x 2 c6aw c6aw 100 Sep 27 10:10 .
+drwx------ 3 c6aw c6aw  60 Sep 27 10:10 ..
+-rw-r--r-- 1 c6aw c6aw   5 Sep 27 10:10 important
+-rw-r--r-- 1 c6aw c6aw   7 Sep 27 10:10 pid
+-rw-r--r-- 1 c6aw c6aw   5 Sep 27 10:10 role
+state/wake/queue.lock now: ls: cannot access '/tmp/fm-lab.mKnWqu/state/wake/queue.lock': No such file or directory
+$ tail -1 state/wake/queue
+1790521856	7	check	inbox:1790521856-gj2Rl1	check: captain inbox note 1790521856-gj2Rl1 - primary note under planted lock

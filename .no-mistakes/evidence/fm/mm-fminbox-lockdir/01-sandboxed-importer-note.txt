@@ -1,0 +1,26 @@
+## Scenario: sandboxed importer binds only state/inbox writable
+$ find state before:
+state
+state/inbox
+
+$ bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --bind $LAB/state/inbox $LAB/state/inbox -- env FM_HOME=$LAB bin/fm-inbox.sh note --no-announce --request-id plan-42 --json 'planner proposal: ship X'
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1790521548-wTC6eW","request_id":"plan-42","saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-lab.mKnWqu/state/inbox/1790521548-wTC6eW.note"}
+exit=0
+
+$ same importer tries to write state/evil.check.sh (should be denied by the narrow bind):
+sh: line 1: /tmp/fm-lab.mKnWqu/state/evil.check.sh: Read-only file system
+exit=1
+
+$ default (announcing) note inside the same narrow sandbox, for contrast:
+mkdir: cannot create directory ‘/tmp/fm-lab.mKnWqu/state/wake’: Read-only file system
+Terminated                 bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --ro-bind $LAB $LAB --bind $LAB/state/inbox $LAB/state/inbox -- env -u NO_MISTAKES_GATE FM_HOME=$LAB $W/bin/fm-inbox.sh note --request-id plan-43 --json 'second proposal'
+exit=143
+
+$ find state after:
+state
+state/inbox
+state/inbox/1790521548-J20ZYH.note
+state/inbox/1790521548-wTC6eW.note
+state/inbox/.requests
+state/inbox/.requests/plan-42
+state/inbox/.requests/plan-43
