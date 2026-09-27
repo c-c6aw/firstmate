@@ -4597,7 +4597,7 @@ test_branch_dispatch_routes_secondmate_signal_by_new_span() {
   local repo home out status
   repo="$TMP_ROOT/dispatch-span-root"
   home="$TMP_ROOT/dispatch-span-home"
-  mkdir -p "$repo/.pi/extensions/lib" "$home/state" "$home/projects/approved"
+  mkdir -p "$repo/.pi/extensions/lib" "$home/state/wake" "$home/projects/approved"
   cp "$ROOT/.pi/extensions/lib/fm-branch-dispatch.ts" "$repo/.pi/extensions/lib/fm-branch-dispatch.ts"
   cp "$ROOT/.pi/extensions/lib/fm-native-contract.ts" "$repo/.pi/extensions/lib/fm-native-contract.ts"
   cp "$ROOT/.pi/extensions/lib/fm-async-exec.ts" "$repo/.pi/extensions/lib/fm-async-exec.ts"
@@ -4624,7 +4624,7 @@ function stage(task, presented, span) {
     'status_commit_presentation_snapshot "$2" "$(printf "%s\\t%s\\t%s" "$3" "$4" "$ident")"',
     "_", process.env.CLASSIFY_LIB, state, task, String(Buffer.byteLength(presented))]);
   appendFileSync(path, span);
-  writeFileSync(`${state}/.wake-queue`, signalRow(task));
+  writeFileSync(`${state}/wake/queue`, signalRow(task));
 }
 
 // Both routing paths: the Pi dispatcher and the attended supervision host.
@@ -4682,7 +4682,7 @@ for (const [order, queue, signalSeq, staleSeq] of [
   ["signal first", "1\t1\tsignal\tmate.status\tsignal: mate.status\n1\t2\tstale\tmate\tstale: mate", "1", "2"],
 ]) {
   stage("mate", hold, "done: sample-e PR merged\n");
-  writeFileSync(`${state}/.wake-queue`, queue);
+  writeFileSync(`${state}/wake/queue`, queue);
   for (const attendedHost of [false, true]) {
     const scope = scopeForUnreadWake(state, false, false, attendedHost);
     if (!scope.eligibleSeqs.includes(signalSeq) || scope.eligibleSeqs.includes(staleSeq)) {
