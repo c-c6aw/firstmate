@@ -2549,7 +2549,7 @@ test_own_work_wait_keeps_first_alert_then_long_cadence() {
       pid=$!
       wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "$wait_kind repeated an alert: $(cat "$dir/recheck.out")"; }
       [ ! -s "$dir/recheck.out" ] || { reap "$pid"; fail "$wait_kind printed a repeated alert"; }
-      [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "$wait_kind queued a repeated alert"; }
+      [ ! -s "$state/wake/queue" ] || { reap "$pid"; fail "$wait_kind queued a repeated alert"; }
       [ ! -e "$state/.wedge-escalations-$key" ] || { reap "$pid"; fail "$wait_kind counted a wedge"; }
       reap "$pid"
       ack_stopped_cycle "$state" || fail "could not acknowledge $wait_kind test stop"
@@ -2584,7 +2584,7 @@ test_own_work_wait_keeps_first_alert_then_long_cadence() {
   pid=$!
   wait_for_exit "$pid" 100 || { reap "$pid"; fail "undeclared idle worker no longer alarms"; }
   grep -Fx "stale: $window" "$out" >/dev/null || fail "undeclared idle worker did not surface"
-  grep -F "stale: $window" "$state/.wake-queue" >/dev/null || fail "undeclared idle worker's wake was not queued"
+  grep -F "stale: $window" "$state/wake/queue" >/dev/null || fail "undeclared idle worker's wake was not queued"
   pass "own-work waits keep one first alert, then bounded rechecks without wedges; undeclared idle still alarms"
 }
 
@@ -4614,14 +4614,14 @@ test_term_stops_a_watcher_blocked_inside_a_poll() {
 
 # --- held downtime-marker lock must not wedge a TERM'd watcher -------------
 # fm-watch-triage-r1 flake (serial-1 CI): the EXIT cleanup publishes the
-# downtime marker under .watcher-down.lock through an unbounded acquire, so a
+# downtime marker under wake/watcher-down.lock through an unbounded acquire, so a
 # single TERM could strand the watcher inside its own trap for as long as a
 # live foreign holder kept that lock - the observed watcher only died when a
 # second TERM short-circuited the trap. The bounded cleanup acquire preserves
 # the single-TERM stop; on timeout the publish is skipped and the singleton
 # stays behind as ordinary dead-pid evidence for the next arm to clear.
 
-# Start a watcher, hold its .watcher-down.lock from a live foreign subshell,
+# Start a watcher, hold its wake/watcher-down.lock from a live foreign subshell,
 # and send exactly one TERM. Without <release-ticks> the lock stays held until
 # the watcher exits. With it, the watcher runs as a handling successor, whose
 # poll loop never takes the marker lock, and the holder arms FIFOs as its pid
@@ -4695,7 +4695,7 @@ term_watcher_with_held_marker_lock() {  # <dir> [release-ticks]
       done
     fi
     fm_lock_release "$lock"
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.watcher-down.lock" "$dir/marker-lock-held" \
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/wake/watcher-down.lock" "$dir/marker-lock-held" \
     "$dir/release-marker-lock" "$dir/marker-lock-contended" \
     "$release_ticks" &
   holder=$!
@@ -4719,7 +4719,7 @@ term_watcher_with_held_marker_lock() {  # <dir> [release-ticks]
 test_term_stops_a_watcher_whose_cleanup_marker_lock_is_held() {
   local dir state
   dir=$(make_case term-held-marker-lock); state="$dir/state"
-  # A live foreign holder keeps .watcher-down.lock across the TERM, so the
+  # A live foreign holder keeps wake/watcher-down.lock across the TERM, so the
   # watcher's EXIT cleanup can only finish by out-waiting its bounded acquire
   # rather than spinning on the marker lock forever.
   term_watcher_with_held_marker_lock "$dir"
@@ -4729,7 +4729,7 @@ test_term_stops_a_watcher_whose_cleanup_marker_lock_is_held() {
     || fail "a watcher whose marker publish timed out lost its stale singleton evidence"
   FM_STATE_OVERRIDE="$state" bash -c '
     . "$1" && fm_recovery_transition "$2" clear-stale-lock "$3" downtime
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.watcher-down" "$state/.watch.lock" \
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/wake/watcher-down" "$state/.watch.lock" \
     || fail "the retained singleton did not clear once the marker lock freed"
   [ ! -e "$state/.watch.lock" ] \
     || fail "the stale singleton survived its clear-stale-lock"
