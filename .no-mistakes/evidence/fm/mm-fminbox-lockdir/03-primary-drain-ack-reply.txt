@@ -1,0 +1,49 @@
+## Scenario: primary drains the state/wake queue, acks the note and replies
+$ bin/fm-wake-drain.sh
+1790521706	1	check	inbox:1790521548-J20ZYH	check: captain inbox note 1790521548-J20ZYH - second proposal
+1790521706	2	check	inbox:1790521548-wTC6eW	check: captain inbox note 1790521548-wTC6eW - sample proposal: ship X
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3881128.1790521706.6ezgl4
+exit=0
+
+$ bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3881128.1790521706.6ezgl4
+exit=0
+
+$ bin/fm-inbox.sh drain --ack 1790521548-wTC6eW
+acked 1790521548-wTC6eW
+exit=0
+
+$ bin/fm-inbox.sh reply 1790521548-wTC6eW 'approved; filing it'
+{"schema":"fm-inbox-reply.v1","outcome":"created","id":"1790521548-wTC6eW","path":"/tmp/fm-lab.mKnWqu/state/inbox/.replies/1790521548-wTC6eW"}
+exit=0
+
+$ cat state/wake/queue (after ack)
+(size 0)
+
+$ top-level state/ entries that are locks, wake queue or watcher-down (expect none):
+(none)
+
+$ find state/wake state/inbox
+state/inbox
+state/inbox/1790521548-J20ZYH.note
+state/inbox/.announced
+state/inbox/.announced/1790521548-J20ZYH
+state/inbox/.announced/1790521548-wTC6eW
+state/inbox/handled
+state/inbox/handled/1790521548-wTC6eW.note
+state/inbox/.replies
+state/inbox/.replies/1790521548-wTC6eW
+state/inbox/.replies/.seq
+state/inbox/.requests
+state/inbox/.requests/plan-42
+state/inbox/.requests/plan-43
+state/wake
+state/wake/queue
+state/wake/queue.seq
+state/wake/watcher-down
+
+$ cat state/inbox/.replies/1790521548-wTC6eW
+id=1790521548-wTC6eW
+at=2026-09-27T15:08:45Z
+seq=1
+--
+approved; filing it

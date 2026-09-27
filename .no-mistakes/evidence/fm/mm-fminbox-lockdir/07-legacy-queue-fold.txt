@@ -1,0 +1,25 @@
+## Scenario: an upgraded home's legacy top-level wake queue is folded into state/wake
+before:
+state
+state/.wake-queue
+state/.wake-queue.seq
+$ bin/fm-wake-drain.sh
+1790521867	42	check	inbox:legacy-1	check: captain inbox note legacy-1 - queued before upgrade
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 42 --recovery-generation 3910335.1790521867.1rMpBz
+exit=0
+$ bin/fm-inbox.sh note 'post-upgrade note'
+exit=0
+after:
+state
+state/inbox
+state/inbox/1790521867-oKpfyU.note
+state/inbox/.announced
+state/inbox/.announced/1790521867-oKpfyU
+state/.main-eligible-rows
+state/wake
+state/wake/queue
+state/wake/queue.seq
+state/wake/watcher-down
+$ cat state/wake/queue
+1790521867	42	check	inbox:legacy-1	check: captain inbox note legacy-1 - queued before upgrade
+1790521867	43	check	inbox:1790521867-oKpfyU	check: captain inbox note 1790521867-oKpfyU - post-upgrade note

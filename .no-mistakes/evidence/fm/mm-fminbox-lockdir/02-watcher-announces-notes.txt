@@ -1,0 +1,39 @@
+## Scenario: unsandboxed watcher announces the importer's unannounced notes
+$ FM_HOME=$LAB bin/fm-watch.sh   (real watcher, lab home, 90s cap)
+check: captain inbox note announced: 1790521548-J20ZYH 1790521548-wTC6eW
+watcher exit=0
+
+$ find state (after):
+state
+state/.heartbeat-streak
+state/home-summary.json
+state/.inactive-outcome-reconcile
+state/inbox
+state/inbox/1790521548-J20ZYH.note
+state/inbox/1790521548-wTC6eW.note
+state/inbox/.announced
+state/inbox/.announced/1790521548-J20ZYH
+state/inbox/.announced/1790521548-wTC6eW
+state/inbox/.requests
+state/inbox/.requests/plan-42
+state/inbox/.requests/plan-43
+state/.last-heartbeat
+state/.last-watcher-beat
+state/.secondmate-liveness-tick
+state/terminal-outcomes
+state/wake
+state/wake/queue
+state/wake/queue.seq
+state/wake/watcher-down
+state/.watch-deliveries.log
+
+$ cat state/wake/queue
+1790521706	1	check	inbox:1790521548-J20ZYH	check: captain inbox note 1790521548-J20ZYH - second proposal
+1790521706	2	check	inbox:1790521548-wTC6eW	check: captain inbox note 1790521548-wTC6eW - sample proposal: ship X
+
+$ ls state/inbox/.announced
+total 8
+drwxr-xr-x 2 <user> <user>  80 Sep 27 10:08 .
+drwxr-xr-x 4 <user> <user> 120 Sep 27 10:08 ..
+-rw-r--r-- 1 <user> <user>  21 Sep 27 10:08 1790521548-J20ZYH
+-rw-r--r-- 1 <user> <user>  21 Sep 27 10:08 1790521548-wTC6eW

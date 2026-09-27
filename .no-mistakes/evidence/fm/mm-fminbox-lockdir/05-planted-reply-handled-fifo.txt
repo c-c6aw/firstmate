@@ -1,0 +1,41 @@
+## Scenario: importer swaps .replies for a link to an outside dir; primary reply refuses
+$ bin/fm-inbox.sh reply 1790521548-J20ZYH 'ok'
+fm-inbox: refusing to reply: /tmp/fm-lab.mKnWqu/state/inbox/.replies is a link or resolves outside /tmp/fm-lab.mKnWqu/state/inbox
+exit=1
+outside dir: []
+
+## Scenario: importer swaps handled/ for a link; primary drain --ack refuses
+$ bin/fm-inbox.sh drain --ack 1790521548-J20ZYH
+fm-inbox: refusing to ack: /tmp/fm-lab.mKnWqu/state/inbox/handled is a link or resolves outside /tmp/fm-lab.mKnWqu/state/inbox
+exit=1
+outside dir: []; note still pending: /tmp/fm-lab.mKnWqu/state/inbox/1790521548-J20ZYH.note
+
+## Scenario: drain --ack with a path-traversal id refuses the whole batch
+$ bin/fm-inbox.sh drain --ack 1790521548-J20ZYH ../../config/x
+fm-inbox: invalid note id: ../../config/x
+exit=1
+J20ZYH still pending: /tmp/fm-lab.mKnWqu/state/inbox/1790521548-J20ZYH.note
+
+## Scenario: importer publishes a FIFO note with announce_marker; watcher poll is not blocked
+$ time FM_HOME=$LAB bin/fm-watch.sh (cap 60s)
+check: rearm-resurface
+watcher exit=0 after 1s
+## Scenario (cont.): FIFO and link-to-FIFO notes sorted ahead of a real pending note
+real note id=1790521835-A143xa
+prw-r--r-- 1 <user> <user>   0 Sep 27 10:10 1790500000-FIFOaa.note
+lrwxrwxrwx 1 <user> <user>   5 Sep 27 10:10 1790500001-FIFObb.note -> .fifo
+$ FM_HOME=$LAB bin/fm-watch.sh (cap 60s)
+check: rearm-resurface
+watcher exit=0 after 0s
+queue rows for 1790521835-A143xa: 0
+$ drain + ack pending rows first
+1790521802	3	check	inbox:1790521801-4OZuAr	check: captain inbox note 1790521801-4OZuAr - fourth proposal
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 3904959.1790521835.zHaeyI
+ack exit=0
+$ FM_HOME=$LAB bin/fm-watch.sh (cap 60s)
+check: captain inbox note announced: 1790521741-70PYyY 1790521801-4OZuAr 1790521835-A143xa
+watcher exit=0 after 1s
+$ cat state/wake/queue
+1790521843	4	check	inbox:1790521741-70PYyY	check: captain inbox note 1790521741-70PYyY - third proposal
+1790521843	5	check	inbox:1790521801-4OZuAr	check: captain inbox note 1790521801-4OZuAr - fourth proposal
+1790521844	6	check	inbox:1790521835-A143xa	check: captain inbox note 1790521835-A143xa - fifth proposal
