@@ -1,0 +1,44 @@
+### A. BASELINE (base 050a4464): the same importer sandbox, only state/inbox writable, plain note
+
+base exit=124 (124 = hung on a lock it cannot create in state/)
+base top-level wake entries: .wake-queue .wake-queue.seq .watcher-down 
+
+### B. Watcher announce with a dangling .announced/<id> link planted by the importer
+  watcher cycle 1: check: rearm-resurface
+  watcher cycle 2: Terminated                 sleep "$POLL"
+  watcher cycle 3: Terminated                 sleep "$POLL"
+  watcher cycle 4: Terminated                 sleep "$POLL"
+PASS: state/.afk not created; planted link left: /tmp/fm-lab.lHcwSh/state/.afk
+wake rows for the note (announce ran, marker refused): 0
+
+### C. Watcher with state/inbox/.announced replaced by a link to config/
+  watcher cycle 1: check: rearm-resurface
+  watcher cycle 2: Terminated                 sleep "$POLL"
+  watcher cycle 3: Terminated                 sleep "$POLL"
+  watcher cycle 4: Terminated                 sleep "$POLL"
+PASS: config/ unchanged ()
+wake rows for skipped note: 0
+
+### D. Foreign lock link: state/wake/queue.lock -> outside dir holding a dead pid
+queued 1790523055-7F00IU
+  after planted lock
+  firstmate will pick this up at its next check.
+exit=0
+victim contents: pid role  ; victim dir exists: yes
+queue.lock now: 0 link(s)
+PASS: nothing renamed or deleted through the foreign lock link
+
+
+### B2. Control: same home, the planted link removed -> the watcher announces it
+  watcher cycle 1: check: rearm-resurface
+  watcher cycle 2: check: captain inbox note announced: 1790523055-z9mgAv
+  watcher cycle 3: Terminated                 sleep "$POLL"
+  watcher cycle 4: Terminated                 sleep "$POLL"
+marker: 2026-09-27T15:30:56Z
+### E. Upgrade: a pre-change home with state/.wake-queue rows and .watcher-down
+queued 1790523073-Wr3P6E
+legacy files left: 
+state/wake/queue:
+9	check	legacy:a	check: legacy row a
+10	check	legacy:b	check: legacy row b
+11	check	inbox:1790523073-Wr3P6E	check: captain inbox note 1790523073-Wr3P6E - first note after upgrade

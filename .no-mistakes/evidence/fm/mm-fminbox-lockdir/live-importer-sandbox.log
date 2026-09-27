@@ -1,0 +1,53 @@
+== unsandboxed primary initializes the home (creates state/wake)
+queued 1790522933-sJ54Oo
+inbox
+wake
+state/wake: queue queue.seq watcher-down 
+
+== SANDBOX: importer tries to plant a watcher check script outside state/inbox
+sh: line 1: /tmp/fm-lab.rviilR/state/evil.check.sh: Read-only file system
+exit=1
+sh: line 1: /tmp/fm-lab.rviilR/state/wake/evil: Read-only file system
+exit=1
+
+== SANDBOX: importer files a sample proposal with note --no-announce --request-id --json
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1790522933-ThrpUE","request_id":"sample-42","saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-lab.rviilR/state/inbox/1790522933-ThrpUE.note"}
+exit=0
+== SANDBOX: replay of the same request id is idempotent
+replay 1790522933-ThrpUE
+  sample proposal: ship X
+  firstmate's watcher will announce this note at its next poll.
+exit=0
+RESULT: nothing outside state/inbox changed
+RESULT: no state/evil.check.sh exists
+1790522933-sJ54Oo.note
+1790522933-ThrpUE.note
+.announced
+.requests
+note 1790522933-ThrpUE not yet announced (left for the watcher)
+
+== WATCHER (real bin/fm-watch.sh, unsandboxed, FM_POLL=1): run, drain+ack, re-arm until it announces
+watcher cycle 1 wake reason: check: captain inbox note announced: 1790522933-ThrpUE
+announced marker: 2026-09-27T15:28:54Z
+state/wake/queue rows:
+2	check	inbox:1790522933-ThrpUE	check: captain inbox note 1790522933-ThrpUE - sample proposal: ship X
+top-level state entries now: .heartbeat-streak home-summary.json .inactive-outcome-reconcile inbox .last-heartbeat .last-watcher-beat .secondmate-liveness-tick terminal-outcomes wake .watch-deliveries.log 
+RESULT: no legacy top-level queue, lock or watcher-down entry
+
+== PRIMARY drains wakes (rows presented by fm-wake-drain.sh)
+1790522934	2	check	inbox:1790522933-ThrpUE	check: captain inbox note 1790522933-ThrpUE - sample proposal: ship X
+== PRIMARY replies and acks
+replied 1790522933-ThrpUE
+exit=0
+acked 1790522933-ThrpUE
+exit=0
+== SANDBOX: importer reads its receipt
+[
+ {
+  "id": "1790522933-ThrpUE",
+  "at": "2026-09-27T15:28:54Z",
+  "body": "approved, filing it",
+  "cursor": "000000000001"
+ }
+]
+state/wake after reply: queue queue.seq watcher-down 
