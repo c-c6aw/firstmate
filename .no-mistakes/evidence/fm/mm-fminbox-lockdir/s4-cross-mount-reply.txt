@@ -1,0 +1,24 @@
+## S4: reply with state/wake and state/inbox on separate mounts (P2)
+### BEFORE (1a7f70f5, staged reply in state/wake)
+state/wake on: tmpfs (/tmp); state/inbox bind-mounted from /dev/shm/fm-inbox-mnt.xI50RY on /dev/shm
+/tmp/fm-lab.4nnlKq/state/inbox tmpfs[/fm-inbox-mnt.xI50RY] tmpfs
+$ fm-inbox.sh reply 1791230095-9io5dH ...
+fm-inbox: could not claim the reply sequence
+reply exit=1
+$ fm-inbox.sh receipts --all-replies
+[]
+### AFTER (3b139f2e, this change)
+state/wake on: tmpfs (/tmp); state/inbox bind-mounted from /dev/shm/fm-inbox-mnt.PdmofF on /dev/shm
+/tmp/fm-lab.vxcPey/state/inbox tmpfs[/fm-inbox-mnt.PdmofF] tmpfs
+$ fm-inbox.sh reply 1791230095-m21cD0 ...
+replied 1791230095-m21cD0
+reply exit=0
+$ fm-inbox.sh receipts --all-replies
+[
+ {
+  "id": "1791230095-m21cD0",
+  "at": "2026-10-05T19:54:55Z",
+  "body": "approved, executing",
+  "cursor": "000000000001"
+ }
+]

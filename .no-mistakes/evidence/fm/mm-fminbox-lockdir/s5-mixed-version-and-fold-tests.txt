@@ -1,0 +1,7 @@
+ok - a mate's legacy queue and unmerged fold claims feed stall tracking beside its new queue
+ok - secondmate stall tick observes a mate queue on either layout
+ok - a pre-subdirectory home's queue, counter and recovery marker are folded into state/wake
+ok - the legacy fold delivers every row exactly once whichever of its 37 commands a crash interrupts
+ok - a leftover fold claim waits for a writable loader instead of blocking
+ok - the legacy fold keeps an open downtime episode an older watcher recorded
+SELECTED-OK

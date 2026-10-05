@@ -1,0 +1,10 @@
+## S1: sandboxed importer binds only state/inbox writable (rest of state read-only)
+$ ls -A state (before)
+inbox
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1791230044-4NThiG","request_id":null,"saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-lab.TUeZPF/state/inbox/1791230044-4NThiG.note"}
+exit=0
+--- adversarial: same sandbox tries to plant state/evil.check.sh
+sh: line 1: /tmp/fm-lab.TUeZPF/state/evil.check.sh: Read-only file system
+exit=1
+--- new paths under state after sandboxed note:
+state/inbox/1791230044-4NThiG.note

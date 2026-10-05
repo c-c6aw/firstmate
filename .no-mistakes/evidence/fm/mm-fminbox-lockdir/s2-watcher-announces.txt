@@ -1,0 +1,27 @@
+## S2: real watcher (bin/fm-watch.sh) announces the --no-announce note
+$ fm-inbox.sh list (before)
+1791230044-4NThiG
+    sample proposal 42
+$ timeout 90 fm-watch.sh
+check: captain inbox note announced: 1791230044-4NThiG
+watch exit=0
+$ cat state/wake/queue
+1791230051	1	check	inbox:1791230044-4NThiG	check: captain inbox note 1791230044-4NThiG - sample proposal 42
+$ ls state/inbox/.announced
+1791230044-4NThiG
+$ fm-inbox.sh drain
+1791230044-4NThiG
+    sample proposal 42
+
+Ack with: fm-inbox.sh drain --ack <id>...
+$ top-level state entries
+.heartbeat-streak
+home-summary.json
+.inactive-outcome-reconcile
+inbox
+.last-heartbeat
+.last-watcher-beat
+.secondmate-liveness-tick
+terminal-outcomes
+wake
+.watch-deliveries.log

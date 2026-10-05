@@ -1,0 +1,54 @@
+## S3 adversarial: compromised importer plants a dangling .announced/<id> link at ../../.afk, then a FIFO note
+acked 1791230044-4NThiG
+note id=1791230061-6AgbtX
+/tmp/fm-lab.TUeZPF/state/inbox/:
+total 4
+drwxr-xr-x 4 <user> <user> 120 Oct  5 14:54 .
+drwxr-xr-x 5 <user> <user> 240 Oct  5 14:54 ..
+-rw------- 1 <user> <user>  88 Oct  5 14:54 1791230061-6AgbtX.note
+prw-r--r-- 1 <user> <user>   0 Oct  5 14:54 9999999999-fifo.note
+drwxr-xr-x 2 <user> <user>  80 Oct  5 14:54 .announced
+drwxr-xr-x 2 <user> <user>  60 Oct  5 14:54 handled
+
+/tmp/fm-lab.TUeZPF/state/inbox/.announced/:
+total 4
+drwxr-xr-x 2 <user> <user>  80 Oct  5 14:54 .
+drwxr-xr-x 4 <user> <user> 120 Oct  5 14:54 ..
+-rw-r--r-- 1 <user> <user>  21 Oct  5 14:54 1791230044-4NThiG
+lrwxrwxrwx 1 <user> <user>  10 Oct  5 14:54 1791230061-6AgbtX -> ../../.afk
+$ timeout 40 fm-watch.sh
+check: rearm-resurface
+watch exit=0 after 1s
+$ ls state/.afk
+ls: cannot access '/tmp/fm-lab.TUeZPF/state/.afk': No such file or directory
+$ queue rows for 1791230061-6AgbtX:
+0
+--- second watcher run (past the resurface wake), with a fresh legit note filed alongside to prove polling continues past the FIFO
+queued 1791230068-gZZhAo
+  legit proposal 43
+  firstmate's watcher will announce this note at its next poll.
+check: rearm-resurface
+watch run 1 exit=0 after 1s
+check: rearm-resurface
+watch run 2 exit=0 after 0s
+check: rearm-resurface
+watch run 3 exit=0 after 0s
+$ ls state/.afk
+ls: cannot access '/tmp/fm-lab.TUeZPF/state/.afk': No such file or directory
+$ state/wake/queue
+1791230051	1	check	inbox:1791230044-4NThiG	check: captain inbox note 1791230044-4NThiG - sample proposal 42
+--- watcher run as handling successor (skips restart resurface), reaching inbox_announce_pending with the FIFO note and planted link present
+check: captain inbox note announced: 1791230068-gZZhAo
+watch exit=0 after 0s
+$ ls state/.afk
+ls: cannot access '/tmp/fm-lab.TUeZPF/state/.afk': No such file or directory
+$ state/wake/queue
+1791230051	1	check	inbox:1791230044-4NThiG	check: captain inbox note 1791230044-4NThiG - sample proposal 42
+1791230082	2	check	inbox:1791230068-gZZhAo	check: captain inbox note 1791230068-gZZhAo - legit proposal 43
+$ ls -la state/inbox/.announced
+total 8
+drwxr-xr-x 2 <user> <user> 100 Oct  5 14:54 .
+drwxr-xr-x 4 <user> <user> 140 Oct  5 14:54 ..
+-rw-r--r-- 1 <user> <user>  21 Oct  5 14:54 1791230044-4NThiG
+lrwxrwxrwx 1 <user> <user>  10 Oct  5 14:54 1791230061-6AgbtX -> ../../.afk
+-rw-r--r-- 1 <user> <user>  21 Oct  5 14:54 1791230068-gZZhAo

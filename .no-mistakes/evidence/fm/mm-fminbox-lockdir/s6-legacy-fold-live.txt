@@ -1,0 +1,35 @@
+## S6: an upgraded home folds an older process's state/.wake-queue exactly once
+$ ls -A state (before)
+.wake-queue
+.wake-seq
+$ fm-wake-drain.sh (1st)
+100	1	check	old-writer	check: row from older process
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1296302.1791230131.0cTcAV
+exit=0
+$ fm-wake-drain.sh (2nd)
+100	1	check	old-writer	check: row from older process
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1296302.1791230131.0cTcAV
+exit=0
+$ ls -A state state/wake (after)
+.main-eligible-rows
+wake
+.wake-seq
+queue
+queue.seq
+watcher-down
+
+## S6b: leftover fold claim + read-only state/wake: loader returns promptly
+fm-inbox.sh ready exit=0 in 34ms (124 would mean hung)
+$ ls state/wake (claim left for a writable loader)
+legacy-fold.99
+queue
+queue.seq
+watcher-down
+$ fm-wake-drain.sh (writable loader merges the claim)
+100	1	check	old-writer	check: row from older process
+200	100	check	claimed	check: claimed row
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 100 --recovery-generation 1296302.1791230131.0cTcAV
+queue
+queue.seq
+watcher-down
+note: the fixture's state/.wake-seq was a misnamed counter (legacy name is .wake-queue.seq), so it was correctly not folded; the counter fold is covered by test_legacy_top_level_queue_is_folded (s5 file).
