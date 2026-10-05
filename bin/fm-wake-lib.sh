@@ -2813,48 +2813,133 @@ EOF
 
 # Fold a pre-subdirectory home's wake queue into $FM_WAKE_DIR so rows queued
 # before an upgrade, or appended afterwards by a still-running older process,
-# are not stranded. Folded rows get fresh sequences above both old and new
-# counters: an outstanding acknowledgement cutoff can then only re-present a
-# folded row, never consume one unseen. The counter is raised even when state/
-# itself is not writable, so appends from a process that cannot finish the fold
-# also land above the legacy counter. The watcher-down marker keeps its generation when the new
-# location has none. Every step is non-blocking; the rest is skipped when state/
-# is not writable, and the next writable sourcing process finishes it. A
+# are not stranded. Each row is delivered exactly once even across a crash: the
+# legacy queue is first renamed whole to a claim named by its base sequence,
+# after the counter is raised past every row it will receive, and the claim's
+# rows are merged by one atomic queue replace before the claim is removed. A
+# claim whose sequence range is already queued was merged by a process that
+# died before removing it. A leftover claim is merged under a blocking lock,
+# so the acknowledgement a later drain runs is preceded by that recovery.
+# Folded rows get sequences above both old and new counters: an outstanding
+# acknowledgement cutoff can only re-present a folded row, never consume one
+# unseen. The counter is raised even when state/ itself is not writable, so
+# appends from a process that cannot finish the fold land above the legacy
+# counter. An open downtime episode in the legacy watcher-down marker replaces
+# a missing or acknowledged one at the new location, so an older watcher's
+# downtime is never dropped. Every other step is non-blocking and skipped when
+# state/ is not writable; the next writable loading process finishes it. A
 # secondmate home is folded only by its own code: a mate left on older code
 # still reads the legacy queue.
 _fm_wake_fold_legacy() {
   local legacy="$STATE/.wake-queue" legacy_seq="$STATE/.wake-queue.seq"
-  local legacy_marker="$STATE/.watcher-down" old_seq new_seq kind key payload folded=0
-  [ -e "$legacy" ] || [ -e "$legacy_seq" ] || [ -e "$legacy_marker" ] || return 0
+  local legacy_marker="$STATE/.watcher-down" old_seq new_seq rows
+  set -- "$FM_WAKE_DIR"/legacy-fold.*
+  [ -e "$legacy" ] || [ -e "$legacy_seq" ] || [ -e "$legacy_marker" ] || [ -e "$1" ] || return 0
   [ "$FM_WAKE_QUEUE" = "$FM_WAKE_DIR/queue" ] && [ "$FM_WAKE_QUEUE_LOCK" = "$FM_WAKE_DIR/queue.lock" ] || return 0
   [ ! -e "$STATE/../.fm-secondmate-home" ] || [ "$STATE/../bin" -ef "$FM_WAKE_LIB_DIR" ] || return 0
-  fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK" || return 0
+  if [ -e "$1" ]; then
+    fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 0
+    _fm_wake_merge_legacy_claims_locked
+  else
+    fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK" || return 0
+  fi
   old_seq=$(cat "$legacy_seq" 2>/dev/null || echo 0)
   new_seq=$(cat "$FM_WAKE_QUEUE_SEQ" 2>/dev/null || echo 0)
   case "$old_seq" in ''|*[!0-9]*) old_seq=0 ;; esac
   case "$new_seq" in ''|*[!0-9]*) new_seq=0 ;; esac
-  if [ "$old_seq" -gt "$new_seq" ]; then
-    printf '%s\n' "$old_seq" > "$FM_WAKE_QUEUE_SEQ" || true
-  fi
+  [ "$old_seq" -gt "$new_seq" ] || old_seq=$new_seq
+  [ "$old_seq" -eq "$new_seq" ] || printf '%s\n' "$old_seq" > "$FM_WAKE_QUEUE_SEQ" || true
   if [ ! -w "$STATE" ] || ! fm_lock_try_acquire "$STATE/.wake-queue.lock"; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
   fi
-  if [ -f "$legacy_marker" ] && [ ! -e "$FM_WATCHER_DOWN" ]; then
-    mv -f -- "$legacy_marker" "$FM_WATCHER_DOWN" 2>/dev/null || true
+  _fm_wake_fold_legacy_marker
+  if [ -f "$legacy" ] && rows=$(_fm_wake_legacy_rows "$legacy" 0 | awk 'END { print NR }') \
+    && printf '%s\n' "$((old_seq + rows))" > "$FM_WAKE_QUEUE_SEQ" \
+    && mv -f -- "$legacy" "$FM_WAKE_DIR/legacy-fold.$old_seq"; then
+    rm -f -- "$legacy_seq"
+  elif [ ! -e "$legacy" ]; then
+    rm -f -- "$legacy_seq"
   fi
-  rm -f -- "$legacy_marker"
-  if [ -f "$legacy" ]; then
-    while IFS=$'\t' read -r _ _ kind key payload; do
-      # Status 2 is a row that was never a valid wake; drop it, do not retry.
-      fm_wake_append_locked "$kind" "$key" "$payload" 2>/dev/null \
-        || { [ "$?" -eq 2 ] || folded=1; }
-    done < "$legacy"
-  fi
-  # A row that could not be folded keeps the legacy queue for a later retry;
-  # re-folding the rows that did land only re-presents them.
-  [ "$folded" -ne 0 ] || rm -f -- "$legacy" "$legacy_seq"
   fm_lock_release "$STATE/.wake-queue.lock"
+  _fm_wake_merge_legacy_claims_locked
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 }
+
+# Print a legacy queue's valid rows renumbered from <base> + 1, in order.
+_fm_wake_legacy_rows() {  # <legacy-queue> <base>
+  awk -F '\t' -v OFS='\t' -v base="$2" '
+    NF >= 5 && $3 ~ /^(signal|stale|check|heartbeat)$/ { print $1, base + (++n), $3, $4, $5 }
+  ' "$1"
+}
+
+# Merge every legacy-fold claim into the queue under the held queue lock; a
+# claim whose sequence range is already queued is only removed. A claim that
+# cannot be merged is kept for the next loading process.
+_fm_wake_merge_legacy_claims_locked() {
+  local claim base tmp merged
+  # A merge that died left its scratch files; the held lock makes them stale.
+  rm -f -- "$FM_WAKE_DIR"/queue.fold.*
+  for claim in "$FM_WAKE_DIR"/legacy-fold.*; do
+    [ -f "$claim" ] && [ ! -L "$claim" ] || continue
+    base=${claim##*.}
+    case "$base" in ''|*[!0-9]*) continue ;; esac
+    tmp=$(mktemp "$FM_WAKE_DIR/queue.fold.XXXXXX") || return 0
+    merged=0
+    # shellcheck disable=SC2016  # The awk program runs through _fm_wake_queue_pipe.
+    if _fm_wake_legacy_rows "$claim" "$base" > "$tmp.rows" \
+      && _fm_wake_queue_pipe "$FM_WAKE_QUEUE" awk -F '\t' -v base="$base" -v rows="$tmp.rows" '
+        { print }
+        NF >= 5 && $2 ~ /^[0-9]+$/ && $2 > base { queued[$2] = 1 }
+        END {
+          while ((getline line < rows) > 0) {
+            split(line, f, "\t")
+            if (f[2] in queued) exit 3
+            print line
+          }
+        }
+      ' > "$tmp"; then
+      if [ ! -s "$tmp.rows" ]; then
+        merged=1
+      elif _fm_recovery_marker_publish "$FM_WATCHER_DOWN" downtime "" append \
+        && _fm_atomic_replace "$tmp" "$FM_WAKE_QUEUE"; then
+        merged=1
+      fi
+    elif [ "$?" -eq 3 ]; then
+      merged=1
+    fi
+    # Scratch goes before the claim, so no crash point strands it.
+    rm -f -- "$tmp" "$tmp.rows"
+    [ "$merged" -eq 0 ] || rm -f -- "$claim"
+  done
+  return 0
+}
+
+# Move an open legacy downtime episode over a missing or acknowledged one at
+# the new location, then remove the legacy marker. Skipped while either marker
+# lock is held; a later loading process retries.
+_fm_wake_fold_legacy_marker() {
+  local legacy_marker="$STATE/.watcher-down" keep=0
+  [ -e "$legacy_marker" ] || return 0
+  fm_lock_try_acquire "$FM_WATCHER_DOWN.lock" || return 0
+  if ! fm_lock_try_acquire "$legacy_marker.lock"; then
+    fm_lock_release "$FM_WATCHER_DOWN.lock"
+    return 0
+  fi
+  if fm_recovery_marker_read "$legacy_marker"; then
+    case "$FM_RECOVERY_MARKER_TOKEN" in acked:*) ;; *) keep=1 ;; esac
+  fi
+  if [ "$keep" -eq 1 ] && fm_recovery_marker_read "$FM_WATCHER_DOWN"; then
+    case "$FM_RECOVERY_MARKER_TOKEN" in acked:*) ;; *) keep=0 ;; esac
+  fi
+  FM_RECOVERY_MARKER_TOKEN=
+  if [ "$keep" -eq 1 ]; then
+    mv -f -- "$legacy_marker" "$FM_WATCHER_DOWN" 2>/dev/null || rm -f -- "$legacy_marker"
+  else
+    rm -f -- "$legacy_marker"
+  fi
+  fm_lock_release "$legacy_marker.lock"
+  fm_lock_release "$FM_WATCHER_DOWN.lock"
+}
+
 _fm_wake_fold_legacy || true

@@ -2958,6 +2958,104 @@ test_legacy_fold_skips_another_homes_secondmate_state() {
   pass "the legacy fold leaves another home's secondmate state untouched"
 }
 
+# A process killed at any point of the legacy fold must leave every legacy row
+# delivered exactly once after the next process loads the library: the crash
+# point sweeps every external command the fold and its locks run.
+test_legacy_fold_is_exactly_once_across_crashes() {
+  local dir state fakebin cmd real n count keys left
+  dir=$(make_case legacy-fold-crash)
+  fakebin="$dir/crashbin"
+  mkdir -p "$fakebin"
+  for cmd in mv rm mktemp date awk cat chmod mkdir ln perl readlink sed tr; do
+    real=$(command -v "$cmd") || continue
+    cat > "$fakebin/$cmd" <<SH
+#!/usr/bin/env bash
+n=\$(( \$(<"\$FM_TEST_CRASH_COUNT") + 1 ))
+echo "\$n" > "\$FM_TEST_CRASH_COUNT"
+[ "\$n" -ne "\$FM_TEST_CRASH_AT" ] || kill -KILL 0
+exec "$real" "\$@"
+SH
+    chmod +x "$fakebin/$cmd"
+  done
+  n=1
+  while [ "$n" -le 600 ]; do
+    state="$dir/state-$n"
+    mkdir -p "$state/wake"
+    printf '100\t4\tcheck\tnew-c\tcheck: new c\n' > "$state/wake/queue"
+    printf '4\n' > "$state/wake/queue.seq"
+    printf '100\t41\tcheck\tlegacy-a\tcheck: legacy a\n100\t43\tsignal\tlegacy-b\tsignal: legacy b\n' > "$state/.wake-queue"
+    printf '43\n' > "$state/.wake-queue.seq"
+    printf '0' > "$dir/count"
+    ( perl -MPOSIX=setsid -e 'setsid() >= 0 or exit 1; exec @ARGV' \
+      env PATH="$fakebin:$PATH" FM_TEST_CRASH_COUNT="$dir/count" FM_TEST_CRASH_AT="$n" \
+      FM_STATE_OVERRIDE="$state" bash -c '. "$1"' _ "$ROOT/bin/fm-wake-lib.sh" || true ) >/dev/null 2>&1 || true
+    count=$(<"$dir/count")
+    append_wake "$state" check "new-d" "check: new d" || fail "append after a fold crashed at command $n failed"
+    FM_STATE_OVERRIDE="$state" bash -c '. "$1"' _ "$ROOT/bin/fm-wake-lib.sh" \
+      || fail "reloading after a fold crashed at command $n failed"
+    keys=$(awk -F '\t' '{ print $4 }' "$state/wake/queue" | sort | tr '\n' ' ')
+    assert_equals "legacy-a legacy-b new-c new-d " "$keys" \
+      "every row must be queued exactly once after a fold crashed at command $n"
+    assert_equals 4 "$(awk -F '\t' '{ print $2 }' "$state/wake/queue" | sort -u | wc -l | tr -d ' ')" \
+      "sequences must stay unique after a fold crashed at command $n"
+    [ ! -e "$state/.wake-queue" ] || fail "the legacy queue survived recovery from a crash at command $n"
+    for left in "$state"/wake/legacy-fold.* "$state"/wake/queue.fold.*; do
+      [ ! -e "$left" ] || fail "recovery from a crash at command $n left ${left##*/} in state/wake"
+    done
+    [ "$count" -ge "$n" ] || break
+    n=$((n + 1))
+  done
+  [ "$n" -gt 2 ] && [ "$n" -le 600 ] || fail "the crash sweep did not cover the fold (stopped at $n)"
+  pass "the legacy fold delivers every row exactly once whichever of its $((n - 1)) commands a crash interrupts"
+}
+
+# An older watcher still running beside the new layout records its downtime in
+# the top-level marker; an acknowledged episode at the new location must not
+# swallow it.
+test_legacy_fold_keeps_an_open_legacy_downtime_episode() {
+  local dir state
+  dir=$(make_case legacy-fold-marker)
+  state="$dir/state"
+  printf 'acked:downtime:new.gen\n' > "$state/wake/watcher-down"
+  printf 'pending:downtime:old.gen\n' > "$state/.watcher-down"
+  FM_STATE_OVERRIDE="$state" bash -c '. "$1"' _ "$ROOT/bin/fm-wake-lib.sh" \
+    || fail "loading the lib beside a legacy marker failed"
+  assert_equals "pending:downtime:old.gen" "$(cat "$state/wake/watcher-down")" \
+    "an open legacy downtime episode must replace an acknowledged one"
+  [ ! -e "$state/.watcher-down" ] || fail "the legacy marker was left behind"
+  printf 'pending:downtime:newer.gen\n' > "$state/wake/watcher-down"
+  printf 'pending:downtime:old2.gen\n' > "$state/.watcher-down"
+  FM_STATE_OVERRIDE="$state" bash -c '. "$1"' _ "$ROOT/bin/fm-wake-lib.sh" \
+    || fail "loading the lib beside a second legacy marker failed"
+  assert_equals "pending:downtime:newer.gen" "$(cat "$state/wake/watcher-down")" \
+    "an episode already open at the new location must be kept"
+  pass "the legacy fold keeps an open downtime episode an older watcher recorded"
+}
+
+# Rows an older process appends to the top-level queue after the watcher
+# started are folded within a poll, so a reader that does not load the library
+# (the Pi extension) still sees them.
+test_watcher_poll_folds_rows_from_an_older_writer() {
+  local dir state pid i
+  dir=$(make_case legacy-fold-watcher)
+  state="$dir/state"
+  PATH="$dir/fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$dir/watch.out" &
+  pid=$!
+  for i in $(seq 1 50); do [ -e "$state/.last-watcher-beat" ] && break; sleep 0.2; done
+  printf '100\t7\tcheck\tlegacy-late\tcheck: legacy late\n' > "$state/.wake-queue"
+  for i in $(seq 1 50); do
+    grep -F 'legacy-late' "$state/wake/queue" >/dev/null 2>&1 && break
+    sleep 0.2
+  done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  grep -F 'legacy-late' "$state/wake/queue" >/dev/null 2>&1 \
+    || fail "the running watcher never folded a row an older writer queued"
+  [ ! -e "$state/.wake-queue" ] || fail "the running watcher left the legacy queue behind"
+  pass "a running watcher folds rows an older writer queues at the top level"
+}
+
 # A sandboxed caller holds only state/inbox, so a note it saves with
 # --no-announce is announced by the watcher: exactly one inbox wake, delivered.
 test_watcher_announces_unannounced_inbox_note() {
@@ -3705,6 +3803,9 @@ test_wake_queue_prune_task
 test_legacy_top_level_queue_is_folded
 test_legacy_fold_skips_non_canonical_queue
 test_legacy_fold_skips_another_homes_secondmate_state
+test_legacy_fold_is_exactly_once_across_crashes
+test_legacy_fold_keeps_an_open_legacy_downtime_episode
+test_watcher_poll_folds_rows_from_an_older_writer
 test_watcher_announces_unannounced_inbox_note
 test_inbox_announce_never_writes_through_planted_links
 test_inbox_announce_bounds_a_blocking_note_read
