@@ -1,0 +1,3 @@
+agent-skill-trigger-index | name: agent-skill-trigger-index | description: Load only when auditing or maintaining the complete agent-only skill trigger index.
+ask-user-authority | name: ask-user-authority | description: Agent-only decision procedure for ask-user findings. Use before deciding, answering, or resolving any ask-user finding. This skill is the single owner of finding-decision policy: firstmate always appl
+validation-supervision | name: validation-supervision | description: Load when a ship starts or already has an active no-mistakes validation run, including a mid-run requirement change or finding, and before deciding, answering, or resolving any ask-user finding.
