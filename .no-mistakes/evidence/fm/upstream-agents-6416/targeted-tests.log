@@ -1,0 +1,13 @@
+== fm-ask-user-authority
+ok - primary workers and secondmates receive the authority rule through generated instructions
+exit=0
+== fm-documentation-audiences
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
+exit=0
+== fm-ensure-agents-md
+ok - fm-ensure-agents-md.sh: refuses a CLAUDE.md symlink that does not point to AGENTS.md
+ok - fm-ensure-agents-md.sh: refuses a non-regular CLAUDE.md
+ok - fm-ensure-agents-md.sh: refuses a case-variant lowercase agents.md (issue #389)
+exit=0
