@@ -2818,8 +2818,10 @@ EOF
 # after the counter is raised past every row it will receive, and the claim's
 # rows are merged by one atomic queue replace before the claim is removed. A
 # claim whose sequence range is already queued was merged by a process that
-# died before removing it. A leftover claim is merged under a blocking lock,
-# so the acknowledgement a later drain runs is preceded by that recovery.
+# died before removing it. A leftover claim is merged under a lock waited for
+# up to five seconds, so the acknowledgement a later drain runs is normally
+# preceded by that recovery; a loader that cannot write state/wake, or whose
+# wait runs out, leaves the claim for a later writable loader.
 # Folded rows get sequences above both old and new counters: an outstanding
 # acknowledgement cutoff can only re-present a folded row, never consume one
 # unseen. The counter is raised even when state/ itself is not writable, so
@@ -2838,7 +2840,7 @@ _fm_wake_fold_legacy() {
   [ "$FM_WAKE_QUEUE" = "$FM_WAKE_DIR/queue" ] && [ "$FM_WAKE_QUEUE_LOCK" = "$FM_WAKE_DIR/queue.lock" ] || return 0
   [ ! -e "$STATE/../.fm-secondmate-home" ] || [ "$STATE/../bin" -ef "$FM_WAKE_LIB_DIR" ] || return 0
   if [ -e "$1" ]; then
-    fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 0
+    [ -w "$FM_WAKE_DIR" ] && fm_lock_acquire_wait_max "$FM_WAKE_QUEUE_LOCK" 5 || return 0
     _fm_wake_merge_legacy_claims_locked
   else
     fm_lock_try_acquire "$FM_WAKE_QUEUE_LOCK" || return 0

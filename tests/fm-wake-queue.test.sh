@@ -3061,6 +3061,28 @@ SH
   pass "the legacy fold delivers every row exactly once whichever of its $((n - 1)) commands a crash interrupts"
 }
 
+# A leftover claim must not hold up a loader that cannot write state/wake; the
+# claim stays for a later writable loader to merge.
+test_legacy_fold_claim_skipped_when_wake_dir_unwritable() {
+  local dir state rc=0 claim
+  dir=$(make_case legacy-fold-readonly)
+  state="$dir/state"
+  mkdir -p "$state/wake"
+  claim="$state/wake/legacy-fold.40"
+  printf '100\t41\tcheck\tlegacy-a\tcheck: legacy a\n' > "$claim"
+  chmod a-w "$state/wake"
+  FM_STATE_OVERRIDE="$state" timeout 10 bash "$ROOT/bin/fm-wake-lib.sh" || rc=$?
+  chmod u+w "$state/wake"
+  assert_equals 0 "$rc" "a loader that cannot write state/wake must return promptly"
+  [ -f "$claim" ] || fail "a non-writable loader removed the leftover claim"
+  FM_STATE_OVERRIDE="$state" timeout 10 bash "$ROOT/bin/fm-wake-lib.sh" \
+    || fail "a writable loader failed to merge the leftover claim"
+  [ ! -e "$claim" ] || fail "a writable loader left the claim behind"
+  assert_equals "legacy-a" "$(awk -F '\t' '{ print $4 }' "$state/wake/queue")" \
+    "a writable loader must merge the leftover claim"
+  pass "a leftover fold claim waits for a writable loader instead of blocking"
+}
+
 # An older watcher still running beside the new layout records its downtime in
 # the top-level marker; an acknowledged episode at the new location must not
 # swallow it.
@@ -3857,6 +3879,7 @@ test_legacy_top_level_queue_is_folded
 test_legacy_fold_skips_non_canonical_queue
 test_legacy_fold_skips_another_homes_secondmate_state
 test_legacy_fold_is_exactly_once_across_crashes
+test_legacy_fold_claim_skipped_when_wake_dir_unwritable
 test_legacy_fold_keeps_an_open_legacy_downtime_episode
 test_watcher_poll_folds_rows_from_an_older_writer
 test_watcher_announces_unannounced_inbox_note
