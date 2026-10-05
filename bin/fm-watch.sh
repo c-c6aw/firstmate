@@ -832,25 +832,41 @@ recorded_windows() {
 # pause cadence already owns that bounded visibility, and blocked waits remain
 # actionable because they do not carry this declaration. This is a read-only
 # observation: the receiving home owns acknowledgement and this parent never
-# changes the row or the foreign queue.
-secondmate_oldest_queue_row() {  # <queue-path>
-  local queue=$1
-  [ -f "$queue" ] && [ ! -L "$queue" ] || return 0
+# changes the row or the foreign queue. Each queue file is ordered by its own
+# sequence; across several files the earliest such row wins, and the first file
+# wins a tie.
+secondmate_oldest_queue_row() {  # <queue-path>...
+  local n=$# queue
+  for queue in "$@"; do
+    if [ -f "$queue" ] && [ ! -L "$queue" ]; then set -- "$@" "$queue"; fi
+  done
+  shift "$n"
+  [ "$#" -gt 0 ] || return 0
   awk -F '\t' '
     function declared_external_pause(kind, payload) {
       return kind == "stale" \
         && payload ~ /^stale: .*\(paused [0-9]+s, awaiting external - declared (pause,|paused\))/
     }
+    FNR == 1 { file++ }
     NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ \
       && !declared_external_pause($3, $5) {
-      if (!found || $2 < seq) {
-        found = 1
-        seq = $2
-        row = $0
+      if (!(file in seq) || $2 < seq[file]) {
+        seq[file] = $2
+        epoch[file] = $1
+        row[file] = $0
       }
     }
-    END { if (found) print row }
-  ' "$queue" 2>/dev/null || true
+    END {
+      for (f = 1; f <= file; f++) {
+        if ((f in seq) && (!found || epoch[f] < best)) {
+          found = 1
+          best = epoch[f]
+          out = row[f]
+        }
+      }
+      if (found) print out
+    }
+  ' "$@" 2>/dev/null || true
 }
 
 # 0 iff <task> is demonstrably inside an active turn, through the watcher's own
@@ -948,7 +964,7 @@ secondmate_ring_to_drain() {  # <task> <window>
 # foreign queue.
 secondmate_wake_stall_tick() {
   local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
-  local meta task kind remote_host home queue row epoch seq row_key marker progress_marker ring_marker progress observed_at observed_key
+  local meta task kind remote_host home row epoch seq row_key marker progress_marker ring_marker progress observed_at observed_key
   local receipt receipt_dir notify_key queued idle reason episode_alerted already_rung w
   # Endpoint metadata admits this queue-loop check; secondmate-liveness owns registered mates whose endpoint is missing or dead.
   for meta in "$STATE"/*.meta; do
@@ -964,11 +980,11 @@ secondmate_wake_stall_tick() {
     [ -n "$home" ] || continue
     [ -f "$home/.fm-secondmate-home" ] && [ ! -L "$home/.fm-secondmate-home" ] || continue
     [ "$(cat "$home/.fm-secondmate-home" 2>/dev/null || true)" = "$task" ] || continue
-    queue="$home/state/wake/queue"
-    # A mate home /updatefirstmate left STUCK on pre-state/wake code still
-    # writes state/.wake-queue; drop this fallback once no such home remains.
-    [ -e "$queue" ] || queue="$home/state/.wake-queue"
-    row=$(secondmate_oldest_queue_row "$queue")
+    # An older process in a mate mid-update still appends to the legacy
+    # state/.wake-queue, and a fold in progress holds rows in legacy-fold
+    # claims, so all are read; only the mate's own code moves rows between them.
+    row=$(secondmate_oldest_queue_row "$home/state/wake/queue" "$home/state/.wake-queue" \
+      "$home"/state/wake/legacy-fold.*)
     marker="$STATE/.secondmate-wake-stall-$task"
     progress_marker="$STATE/.secondmate-wake-progress-$task"
     ring_marker="$STATE/.secondmate-wake-ring-$task"

@@ -685,9 +685,9 @@ pass "the reply counter replaces a planted link instead of writing through it"
 # The importer can swap any path in state/inbox at any moment, including a
 # temporary file between its creation and the write that fills it. This mktemp
 # shim plays that importer: it lets the real mktemp create the file and, for
-# the Nth file (not directory) created inside the inbox, replaces it with a link
-# to an outside canary. A reply that staged in the inbox would create its
-# counter (1st) and then its record (2nd) there.
+# every file (not directory) created inside the inbox, replaces it with a link
+# to an outside canary. A reply that staged through mktemp and reopened the
+# path by name would write the canary.
 SHIM_BIN="$TMP_ROOT/mktemp-swap-bin"
 mkdir -p "$SHIM_BIN"
 REAL_MKTEMP=$(command -v mktemp)
@@ -697,42 +697,60 @@ set -euo pipefail
 path=\$("$REAL_MKTEMP" "\$@")
 case " \$* " in *" -d "*) printf '%s\n' "\$path"; exit 0 ;; esac
 real=\$(cd -P "\$(dirname "\$path")" && pwd -P)/\$(basename "\$path")
-printf '%s\n' "\$real" >> "\$SWAP_LOG"
 case "\$real" in
-  "\$SWAP_INBOX"/*)
-    n=\$(( \$(cat "\$SWAP_COUNT" 2>/dev/null || printf 0) + 1 ))
-    printf '%s\n' "\$n" > "\$SWAP_COUNT"
-    if [ "\$n" = "\$SWAP_NTH" ]; then rm -f "\$path"; ln -s "\$SWAP_CANARY" "\$path"; fi ;;
+  "\$SWAP_INBOX"/*) rm -f "\$path"; ln -s "\$SWAP_CANARY" "\$path" ;;
 esac
 printf '%s\n' "\$path"
 SHIM
 chmod +x "$SHIM_BIN/mktemp"
 
-for nth in 1 2; do
-  home=$(plant_home "reply-temp-swap-$nth")
-  printf 'canary\n' > "$home/outside/canary"
-  inbox_real=$(cd -P "$home/state/inbox" && pwd -P)
-  state_real=$(cd -P "$home/state" && pwd -P)
+home=$(plant_home reply-temp-swap)
+printf 'canary\n' > "$home/outside/canary"
+inbox_real=$(cd -P "$home/state/inbox" && pwd -P)
+set +e
+out=$(PATH="$SHIM_BIN:$PATH" SWAP_CANARY="$home/outside/canary" SWAP_INBOX="$inbox_real" \
+  run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
+code=$?
+set -e
+expect_code 0 "$code" "reply with every inbox temp file swapped: $out"
+assert_equals "canary" "$(cat "$home/outside/canary")" "a swapped reply temp file must not write the outside canary"
+[ ! -L "$home/outside/canary" ] || fail "the canary must stay a regular file"
+assert_contains "$(cat "$home/state/inbox/.replies/planted.one")" "seq=1" "the reply is recorded with seq 1"
+assert_equals "1" "$(cat "$home/state/inbox/.replies/.seq")" "the counter is a regular file holding 1"
+printf 'id=planted.two\nannounce_marker=1\n--\nplanted\n' > "$home/state/inbox/planted.two.note"
+run_inbox_bounded "$home" reply planted.two "second" >/dev/null || fail "second reply failed"
+assert_contains "$(cat "$home/state/inbox/.replies/planted.two")" "seq=2" "the next reply keeps the sequence order"
+assert_equals "" "$(find "$home/state/inbox/.replies" -name '.reply-staging.*' -print)" "reply leaves no staging file behind"
+pass "reply never reopens an importer-writable temporary path, so a swapped link writes nothing outside"
+
+# The inbox-only binding lets state/inbox and state/wake be separate mounts, so
+# reply must never rename a file from one into the other.
+other_fs=
+tmp_dev=$(stat -c %d "$TMP_ROOT" 2>/dev/null || stat -f %d "$TMP_ROOT")
+for candidate in /dev/shm "/run/user/$(id -u)" /var/tmp; do
+  [ -d "$candidate" ] && [ -w "$candidate" ] || continue
+  dev=$(stat -c %d "$candidate" 2>/dev/null || stat -f %d "$candidate")
+  if [ "$dev" != "$tmp_dev" ]; then
+    other_fs=$(mktemp -d "$candidate/fm-inbox-wake.XXXXXX")
+    break
+  fi
+done
+if [ -n "$other_fs" ]; then
+  home=$(plant_home reply-cross-mount)
+  rmdir "$home/state/wake"
+  ln -s "$other_fs" "$home/state/wake"
   set +e
-  out=$(PATH="$SHIM_BIN:$PATH" SWAP_NTH=$nth SWAP_CANARY="$home/outside/canary" \
-    SWAP_INBOX="$inbox_real" SWAP_COUNT="$home/swap.count" SWAP_LOG="$home/swap.log" \
-    run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
+  out=$(run_inbox_bounded "$home" reply planted.one "answer" 2>&1)
   code=$?
   set -e
-  [ "$(grep -c "^$state_real/" "$home/swap.log")" -ge 2 ] || fail "reply must create its counter and record files (swap site $nth)"
-  assert_equals "canary" "$(cat "$home/outside/canary")" "a swapped reply temp file ($nth) must not write the outside canary"
-  [ ! -L "$home/outside/canary" ] || fail "the canary must stay a regular file (swap site $nth)"
-  if grep -q "^$inbox_real/" "$home/swap.log"; then
-    fail "reply created a temporary file inside the importer-writable inbox: $(cat "$home/swap.log")"
-  fi
-  expect_code 0 "$code" "reply with the swap attempt at site $nth: $out"
-  assert_contains "$(cat "$home/state/inbox/.replies/planted.one")" "seq=1" "the reply is recorded with seq 1 (swap site $nth)"
-  assert_equals "1" "$(cat "$home/state/inbox/.replies/.seq")" "the counter is a regular file holding 1 (swap site $nth)"
-  printf 'id=planted.two\nannounce_marker=1\n--\nplanted\n' > "$home/state/inbox/planted.two.note"
-  run_inbox_bounded "$home" reply planted.two "second" >/dev/null || fail "second reply failed (swap site $nth)"
-  assert_contains "$(cat "$home/state/inbox/.replies/planted.two")" "seq=2" "the next reply keeps the sequence order (swap site $nth)"
-done
-pass "reply never opens an importer-writable temporary path, so a swapped link writes nothing outside"
+  rm -rf "$other_fs"
+  expect_code 0 "$code" "reply with state/wake on another filesystem: $out"
+  assert_contains "$(cat "$home/state/inbox/.replies/planted.one")" "seq=1" "the reply is recorded across mounts"
+  assert_equals "1" "$(cat "$home/state/inbox/.replies/.seq")" "the counter is published across mounts"
+  pass "reply works when state/wake and state/inbox are separate mounts"
+else
+  printf 'SKIP: no writable directory on a filesystem other than %s; cross-mount reply not exercised\n' "$TMP_ROOT"
+fi
 
 # drain --ack puts each id into a path, so every id is checked before anything
 # is created or moved; one bad id refuses the whole batch.

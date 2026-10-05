@@ -675,6 +675,58 @@ SH
   pass "a reprovisioned queue generation starts a fresh no-progress interval"
 }
 
+# A mate mid-update can have its new queue under state/wake/ while an older
+# process still appends to the legacy top-level queue, or a fold has claimed
+# those rows but not yet merged them. The parent must still see the oldest such
+# row, empty new queue or not, without changing any of the mate's files.
+test_secondmate_legacy_rows_feed_stall_beside_the_new_queue() {
+  local dir state sub fakebin real_date leg legacy_file
+  for legacy_file in .wake-queue wake/legacy-fold.6; do
+    leg=${legacy_file##*/}
+    dir=$(make_case "secondmate-legacy-rows-$leg")
+    state="$dir/state"
+    sub="$dir/secondmate"
+    mkdir -p "$sub/state/wake"
+    printf 'mate\n' > "$sub/.fm-secondmate-home"
+    printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+      "$sub" > "$state/mate.meta"
+    fakebin="$dir/fakebin"
+    real_date=$(command -v date)
+    cat > "$fakebin/date" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = +%s ]; then
+  cat "\${FM_FAKE_NOW_FILE:?}"
+else
+  exec "$real_date" "\$@"
+fi
+SH
+    chmod +x "$fakebin/date"
+    : > "$sub/state/wake/queue"
+    printf '100\t7\tcheck\told-writer\tcheck: older process row\n' > "$sub/state/$legacy_file"
+    cp "$sub/state/$legacy_file" "$dir/legacy-before"
+
+    printf '1000\n' > "$dir/now"
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      secondmate_stall_watch_leg "$dir" "first" progress mate "$(printf '1000\t100-7')"
+
+    printf '1002\n' > "$dir/now"
+    PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      secondmate_stall_watch_leg "$dir" "frozen" alert
+    grep -F 'check: secondmate wake-loop stalled: mate=mate row=7 idle=2s' "$dir/watch-frozen.out" >/dev/null \
+      || fail "a frozen $legacy_file row beside an empty new queue was hidden: $(cat "$dir/watch-frozen.out")"
+    cmp -s "$dir/legacy-before" "$sub/state/$legacy_file" \
+      || fail "the parent changed the mate's $legacy_file during read-only stall detection"
+    [ ! -s "$sub/state/wake/queue" ] || fail "the parent wrote the mate's new queue"
+  done
+  pass "a mate's legacy queue and unmerged fold claims feed stall tracking beside its new queue"
+}
+
 # A healthy mate drains its wake queue BETWEEN turns, not inside one, so a queue
 # that has not advanced while the mate is provably mid-turn is not a stalled wake
 # loop - it is the normal state of a busy mate, and the measured false alarms
@@ -3754,6 +3806,7 @@ test_malformed_presentation_lock_reports_acquire_failure
 test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once
 test_secondmate_declared_pause_rows_do_not_feed_stall_escalation
 test_secondmate_reprovisioned_queue_starts_a_fresh_interval
+test_secondmate_legacy_rows_feed_stall_beside_the_new_queue
 test_secondmate_active_turn_defers_stall_until_the_turn_ends
 test_secondmate_long_lived_mate_mid_turn_is_not_a_stall
 test_secondmate_proven_idle_ring_lets_the_child_drain

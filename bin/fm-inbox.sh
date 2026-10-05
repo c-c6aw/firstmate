@@ -71,8 +71,10 @@
 # (tests/fm-inbox.test.sh pins this). Because that caller can plant links in
 # state/inbox/, `reply`, `drain --ack` and the announcement marker write only
 # inside the real .replies/, handled/ and .announced/ directories, and refuse
-# such a directory that is a link or resolves anywhere else. `reply` writes its
-# counter and record in state/wake/ and only renames them in, and `drain --ack`
+# such a directory that is a link or resolves anywhere else. `reply` stages its
+# counter and record in .replies/ itself, each created exclusively and written
+# through that handle, then renamed in place, so it works when state/wake/ and
+# state/inbox/ are separate mounts, and `drain --ack`
 # refuses the whole batch when any id is not a valid note id.
 # `ready` is the read-only primary-readiness projection (lock, wake-consumer
 # health, away posture, observation time). It never acquires the session lock
@@ -278,6 +280,28 @@ enter_inbox_dir() {  # <name>
 
 rename_no_follow() {  # <from> <to>
   perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$1" "$2"
+}
+
+# Publish stdin as ./<name> in the current directory. The staging file is
+# created exclusively beside <name>, so the final rename never crosses a
+# filesystem, and it is written through the handle that created it, so a path
+# swapped in by the importer is never opened for writing.
+publish_in_place() {  # <name>
+  perl -MFcntl=:DEFAULT -e '
+    my ($dest, $tmp, $fh) = ($ARGV[0]);
+    for (1 .. 100) {
+      $tmp = sprintf(".reply-staging.%d.%d", $$, int(rand(1e9)));
+      last if sysopen($fh, $tmp, O_WRONLY | O_CREAT | O_EXCL, 0666);
+      undef $fh;
+    }
+    defined $fh or exit 1;
+    local $/;
+    my $data = <STDIN> // "";
+    unless ((print {$fh} $data) && close($fh) && rename($tmp, $dest)) {
+      unlink $tmp;
+      exit 1;
+    }
+  ' "$1"
 }
 
 # The marker is written only inside the real state/inbox/.announced directory
@@ -612,11 +636,9 @@ cmd_announce() {
 # stays a strict total order.
 # The claim is above both the counter and every recorded reply, and the counter
 # is replaced by rename, so a torn or lost counter can never move it backwards.
-# Both the counter and the reply record are written in state/wake/, which the
-# sandboxed importer cannot reach, and only renamed into the replies directory,
-# so no path the importer can swap is ever opened for writing.
+# Both the counter and the reply record are published with publish_in_place.
 next_reply_seq() {
-  local seq_file=.seq seq recorded tmp
+  local seq_file=.seq seq recorded
   seq=$(cat "$seq_file" 2>/dev/null || printf '0')
   case "$seq" in
     ''|*[!0-9]*) seq=0 ;;
@@ -631,16 +653,12 @@ next_reply_seq() {
   esac
   [ "$recorded" -le "$seq" ] || seq=$recorded
   seq=$((seq + 1))
-  tmp=$(mktemp "$FM_WAKE_DIR/.reply-seq.XXXXXX") || return 1
-  if ! printf '%s\n' "$seq" >"$tmp" || ! rename_no_follow "$tmp" "$seq_file"; then
-    rm -f "$tmp"
-    return 1
-  fi
+  printf '%s\n' "$seq" | publish_in_place "$seq_file" || return 1
   printf '%s\n' "$seq"
 }
 
 cmd_reply() {
-  local json=0 id body path staging seq lock
+  local json=0 id body path seq lock
   if [ "${1:-}" = "--json" ]; then
     json=1
     shift
@@ -672,11 +690,7 @@ cmd_reply() {
     fm_lock_release "$lock"
     die "could not claim the reply sequence"
   fi
-  if ! staging=$(mktemp "$FM_WAKE_DIR/.reply-staging.XXXXXX"); then
-    fm_lock_release "$lock"
-    die "could not record the reply for $id"
-  fi
-  {
+  if ! {
     printf 'id=%s\n' "$id"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'seq=%s\n' "$seq"
@@ -686,8 +700,10 @@ cmd_reply() {
       *$'\n') ;;
       *) printf '\n' ;;
     esac
-  } >"$staging"
-  rename_no_follow "$staging" "./$id" || { rm -f "$staging"; fm_lock_release "$lock"; die "could not record the reply for $id"; }
+  } | publish_in_place "$id"; then
+    fm_lock_release "$lock"
+    die "could not record the reply for $id"
+  fi
   fm_lock_release "$lock"
   if [ "$json" -eq 1 ]; then
     need_python
