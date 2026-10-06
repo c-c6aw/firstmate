@@ -1,0 +1,28 @@
+## A: no config/lavish-off, compatible lavish-axi on PATH
+scaffolded: <LAB>/data/scout-on/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+use the lavish-axi rule: arm your board with bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>
+0
+
+## B: touch config/lavish-off, same compatible lavish-axi
+scaffolded: <LAB>/data/scout-off/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+80:Lavish is turned off for this home (config/lavish-off), so deliver your findings as a text report without Lavish, even for a visual deliverable.
+lavish-axi rule mentions: 0
+
+## C: ship brief with lavish-off present is unaffected (diff vs no flag)
+ship briefs identical
+
+## D: bearings board build with config/lavish-off
+lavish-off: no board built or armed (<LAB>/config/lavish-off exists)
+exit=0
+ls: cannot access '<LAB>/.lavish': No such file or directory
+
+## E: bearings board build without the flag proceeds past the switch (malformed payload rejected)
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: <LAB>/payload.json
+exit=1
+
+## F: adversarial - lavish-off as a directory also switches off
+1
+lavish-off: no board built or armed (<LAB>/config/lavish-off exists)
+exit=0
