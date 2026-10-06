@@ -1,0 +1,13 @@
+/usr/bin/bash: line 4: /tmp/fm-lab.KLdZrv/state/wake/queue: No such file or directory
+sandboxed --no-announce note 1791319081-YmYOlk; queue rows: 0
+== unsandboxed announce:
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1791319081-YmYOlk","request_id":null,"saved":true,"announced":true,"acknowledged":false,"path":"/tmp/fm-lab.KLdZrv/state/inbox/1791319081-YmYOlk.note"}
+exit=0
+1791319081	1	check	inbox:1791319081-YmYOlk	check: captain inbox note 1791319081-YmYOlk - sandboxed idea
+== repeat announce (no duplicate wake):
+{"schema":"fm-inbox-note.v1","outcome":"replay","id":"1791319081-YmYOlk","request_id":null,"saved":true,"announced":true,"acknowledged":false,"path":"/tmp/fm-lab.KLdZrv/state/inbox/1791319081-YmYOlk.note"}
+exit=0
+rows=1
+state/:
+inbox
+wake

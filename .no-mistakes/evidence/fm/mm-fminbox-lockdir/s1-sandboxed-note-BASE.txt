@@ -1,0 +1,13 @@
+== BASE 9ea0c41a: bwrap with only state/inbox + state/wake writable -> fm-inbox.sh note
+exit=124 (124 = hung on top-level state/ lock until timeout)
+== BASE: same note with all of state/ writable:
+queued 1791318991-JrG0a5
+  base idea 2
+  firstmate will pick this up at its next check.
+exit=0
+== top-level state/ entries base created:
+inbox
+wake
+.wake-queue
+.wake-queue.seq
+.watcher-down

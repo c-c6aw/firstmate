@@ -1,0 +1,37 @@
+== upgraded home: legacy top-level queue present:
+inbox
+.wake-queue
+.wake-queue.seq
+== fm-inbox.sh note (loads wake lib -> fold):
+exit=0
+== state/:
+inbox
+wake
+== state/wake/queue:
+1791319034	3	check	legacy:a	check: row from older process A
+1791319034	4	check	legacy:b	check: row from older process B
+1791319034	5	check	inbox:1791319034-H4v26x	check: captain inbox note 1791319034-H4v26x - new note
+== older process appends row C to legacy queue mid-upgrade; then two loads (ready, ready):
+== queue (each row exactly once):
+1791319034	3	check	legacy:a	check: row from older process A
+1791319034	4	check	legacy:b	check: row from older process B
+1791319034	5	check	inbox:1791319034-H4v26x	check: captain inbox note 1791319034-H4v26x - new note
+1791319034	6	check	legacy:c	check: late row C
+state/:
+inbox
+wake
+
+== [unwritable loader] leftover legacy-fold claim + state/ read-only -> fm-inbox.sh ready:
+exit=0 elapsed=0.04s  claim kept for later: legacy-fold.50
+== writable loader merges claim:
+1791319034	3	check	legacy:a	check: row from older process A
+1791319034	4	check	legacy:b	check: row from older process B
+1791319034	5	check	inbox:1791319034-H4v26x	check: captain inbox note 1791319034-H4v26x - new note
+1791319034	6	check	legacy:c	check: late row C
+1791319034	51	check	legacy:d	check: claim D
+queue
+queue.seq
+watcher-down
+
+== [held lock] writable loader + claim while state/wake/queue.lock held by a live pid: bounded (~5s) wait
+exit=0 elapsed=5.03s claims: legacy-fold.90 

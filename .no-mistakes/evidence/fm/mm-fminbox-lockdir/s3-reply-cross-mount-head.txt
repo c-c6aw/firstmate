@@ -1,0 +1,13 @@
+##### HEAD
+note id: 1791319001-b8LWad
+== reply with state/wake on a separate tmpfs and state/inbox its own bind mount:
+tmpfs /tmp/fm-lab.0nSmtd/state/wake
+/tmp/fm-lab.0nSmtd/state/inbox
+{"schema":"fm-inbox-reply.v1","outcome":"created","id":"1791319001-b8LWad","path":"/tmp/fm-lab.0nSmtd/state/inbox/.replies/1791319001-b8LWad"}
+exit=0
+== receipts (unsandboxed):
+{"schema":"fm-inbox-receipts.v1","home":"tmp/fm-lab.0nSmtd","generated":"2026-10-06T20:36:42Z","pending":[{"id":"1791319001-b8LWad","at":"2026-10-06T20:36:41Z","source":"text","request_id":null,"body":"question for primary","acknowledged":false,"announced":true,"reply":{"id":"1791319001-b8LWad","at":"2026-10-06T20:36:41Z","body":"answer across mounts","cursor":"000000000001"}}],"handled":[],"replies":[{"id":"1791319001-b8LWad","at":"2026-10-06T20:36:41Z","body":"answer across mounts","cursor":"000000000001"}],"reply_cursor":"000000000001","omitted":[]}
+
+== second reply refused:
+fm-inbox: reply already recorded for 1791319001-b8LWad
+exit=1

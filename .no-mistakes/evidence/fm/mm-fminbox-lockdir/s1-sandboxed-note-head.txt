@@ -1,0 +1,30 @@
+== top-level state/ before:
+inbox
+wake
+
+== [A] bwrap: whole lab read-only, ONLY state/inbox writable -> note --no-announce
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1791318835-FPwjRZ","request_id":null,"saved":true,"announced":false,"acknowledged":false,"path":"/tmp/fm-lab.Y3pYFd/state/inbox/1791318835-FPwjRZ.note"}
+exit=0
+
+== [B] bwrap: ONLY state/inbox + state/wake writable -> note (with wake)
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1791318835-rqeNCh","request_id":null,"saved":true,"announced":true,"acknowledged":false,"path":"/tmp/fm-lab.Y3pYFd/state/inbox/1791318835-rqeNCh.note"}
+exit=0
+
+== [C] same sandbox, attempt to write state/x.check.sh (must be refused):
+sh: line 1: /tmp/fm-lab.Y3pYFd/state/x.check.sh: Read-only file system
+exit=1
+
+== state/wake/queue:
+1791318835	1	check	inbox:1791318835-rqeNCh	check: captain inbox note 1791318835-rqeNCh - sandboxed idea B
+== top-level state/ after (excluding inbox,wake):
+inbox
+wake
+== inbox notes:
+1791318835-FPwjRZ.note
+1791318835-rqeNCh.note
+
+== unsandboxed watcher announces the no-announce note:
+1791318835-FPwjRZ
+    sandboxed idea A
+1791318835-rqeNCh
+    sandboxed idea B

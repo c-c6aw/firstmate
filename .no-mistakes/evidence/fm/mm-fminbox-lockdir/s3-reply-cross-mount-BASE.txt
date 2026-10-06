@@ -1,0 +1,13 @@
+##### BASE 9ea0c41a
+note id: 1791319002-Gy7mQ2
+== reply with state/wake on a separate tmpfs and state/inbox its own bind mount:
+tmpfs /tmp/fm-lab.5jNOF4/state/wake
+/tmp/fm-lab.5jNOF4/state/inbox
+{"schema":"fm-inbox-reply.v1","outcome":"created","id":"1791319002-Gy7mQ2","path":"/tmp/fm-lab.5jNOF4/state/inbox/.replies/1791319002-Gy7mQ2"}
+exit=0
+== receipts (unsandboxed):
+{"schema":"fm-inbox-receipts.v1","home":"tmp/fm-lab.5jNOF4","generated":"2026-10-06T20:36:42Z","pending":[{"id":"1791319002-Gy7mQ2","at":"2026-10-06T20:36:42Z","source":"text","request_id":null,"body":"question for primary","acknowledged":false,"announced":true,"reply":{"id":"1791319002-Gy7mQ2","at":"2026-10-06T20:36:42Z","body":"answer across mounts","cursor":"000000000001"}}],"handled":[],"replies":[{"id":"1791319002-Gy7mQ2","at":"2026-10-06T20:36:42Z","body":"answer across mounts","cursor":"000000000001"}],"reply_cursor":"000000000001","omitted":[]}
+
+== second reply refused:
+fm-inbox: reply already recorded for 1791319002-Gy7mQ2
+exit=1
