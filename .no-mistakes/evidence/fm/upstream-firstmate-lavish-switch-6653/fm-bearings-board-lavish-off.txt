@@ -1,0 +1,20 @@
+## B1: config/lavish-off present -> build
+lavish-off: no board built or armed (/tmp/fm-lab.woyULS/config/lavish-off exists)
+exit=0
+board path: /tmp/fm-lab.woyULS/.lavish/bearings-board.html exists? no
+files created/changed under lab home after build:
+(end)
+registered procevent sources:
+no sources registered
+
+## B2: lavish-off present + invalid payload path (switch short-circuits before validation)
+lavish-off: no board built or armed (/tmp/fm-lab.woyULS/config/lavish-off exists)
+exit=0
+
+## B3: lavish-off is a directory
+lavish-off: no board built or armed (/tmp/fm-lab.woyULS/config/lavish-off exists)
+exit=0
+
+## B4: config/lavish-off absent -> existing behavior (lavish-axi not installed here)
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: /tmp/fm-lab.woyULS/payload.json
+exit=1

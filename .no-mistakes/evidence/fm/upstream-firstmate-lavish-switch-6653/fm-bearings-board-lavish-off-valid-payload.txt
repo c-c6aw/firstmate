@@ -1,0 +1,15 @@
+## B1 (valid fm-bearings-board.v1 payload): config/lavish-off present -> build
+lavish-off: no board built or armed (/tmp/fm-lab.woyULS/config/lavish-off exists)
+exit=0
+board file exists? no
+files created/changed under lab home after build:
+(end)
+registered procevent sources:
+no sources registered
+
+## B4: config/lavish-off absent -> existing serve-first path (lavish-axi not installed on this machine)
+board: /tmp/fm-lab.woyULS/.lavish/bearings-board.html
+fm-bearings-board: lavish-axi is not installed
+exit=1
+registered procevent sources:
+no sources registered

@@ -1,0 +1,3 @@
+ok - build skips the board, session, binding, and source when config/lavish-off exists
+ok - build fails when reconcile cannot prove a live listener
+board rc=0

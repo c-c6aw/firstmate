@@ -1,0 +1,21 @@
+## lab home: /tmp/fm-lab.woyULS (lavish-axi installed: no)
+## S1: no config/lavish-off -> scout brief
+scaffolded: /tmp/fm-lab.woyULS/data/scout-absent/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+80:Lavish is unavailable (lavish-axi is missing or below its supported version floor), so deliver your findings as a text report without Lavish, even for a visual deliverable.
+
+## S2: touch config/lavish-off -> scout brief
+scaffolded: /tmp/fm-lab.woyULS/data/scout-off/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+80:Lavish is turned off for this home (config/lavish-off), so deliver your findings as a text report without Lavish, even for a visual deliverable.
+
+## S3: config/lavish-off with contents 'no' (contents ignored)
+scaffolded: /tmp/fm-lab.woyULS/data/scout-off-contents/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+80:Lavish is turned off for this home (config/lavish-off), so deliver your findings as a text report without Lavish, even for a visual deliverable.
+
+## S4: ship brief with lavish-off present (should be unaffected)
+scaffolded: /tmp/fm-lab.woyULS/data/ship-off/brief.md (ship, mode=no-mistakes; replace {TASK} and {FIRSTMATE_SPEC})
+exit=0
+(no lavish lines in ship brief)
+ship briefs identical apart from task id: yes
