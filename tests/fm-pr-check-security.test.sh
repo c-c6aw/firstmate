@@ -2768,6 +2768,7 @@ test_retirement_queue_failure_and_receipt_tampering() {
   # Fail sequence publication without making the queue itself look non-empty:
   # a directory at wake/queue would now (correctly) trigger re-arm recovery
   # before the poll runs, so it no longer exercises the terminal append path.
+  mkdir -p "$state/wake"
   mkdir "$state/wake/queue.seq"
   before=$(poll_artifact_snapshot "$state" task-a)
   set +e
