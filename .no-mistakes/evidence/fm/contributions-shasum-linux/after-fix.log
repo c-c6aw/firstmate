@@ -1,0 +1,8 @@
+ok - a host without shasum keys contribution signals with sha256sum
+OK test_signal_key_without_shasum
+ok - new maintainer comment wakes once and stays pending until acknowledged
+OK test_comment_wake
+ok - shared contribution signal wakes once while retaining both acknowledgements
+OK test_shared_contribution_signal_wakes_once
+ok - watcher surfaces one newly durable contribution signal without re-ringing it
+OK test_watcher_surfaces_new_contribution_once

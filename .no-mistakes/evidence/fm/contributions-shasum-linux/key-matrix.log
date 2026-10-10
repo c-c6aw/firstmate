@@ -1,0 +1,17 @@
+check exit=0
+[with-shasum] excluded:  ; expected key contribution-ee89cced8f63efe97f93a052f98e52a4acd99e50badd2edee5d2d192cc414177
+[with-shasum] wake queue:
+1791661295	1	check	contribution-ee89cced8f63efe97f93a052f98e52a4acd99e50badd2edee5d2d192cc414177	check: contributions delivery ee89cced8f63efe97f93a052f98e52a4acd99e50badd2edee5d2d192cc414177
+[with-shasum] pending tokens still recorded: 1
+check exit=0
+[no-shasum] excluded: shasum ; expected key contribution-ee89cced8f63efe97f93a052f98e52a4acd99e50badd2edee5d2d192cc414177
+[no-shasum] wake queue:
+1791661299	1	check	contribution-ee89cced8f63efe97f93a052f98e52a4acd99e50badd2edee5d2d192cc414177	check: contributions delivery ee89cced8f63efe97f93a052f98e52a4acd99e50badd2edee5d2d192cc414177
+[no-shasum] pending tokens still recorded: 1
+error: could not prepare PR poll
+register failed
+check exit=0
+[no-hash-tool] excluded: shasum sha256sum ; expected key contribution-d6bab5f048e0d6cba451c8b44a91d6aa067aeeb31c9e161394804a2433a01767
+[no-hash-tool] wake queue:
+(no wake queue)
+[no-hash-tool] pending tokens still recorded: 0

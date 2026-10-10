@@ -1,0 +1,4 @@
+not ok - without shasum the signal key was not the sha256 of url and token: 1791661281	1	check	contribution-	check: contributions delivery 
+FAIL test_signal_key_without_shasum
+ok - new maintainer comment wakes once and stays pending until acknowledged
+OK test_comment_wake
