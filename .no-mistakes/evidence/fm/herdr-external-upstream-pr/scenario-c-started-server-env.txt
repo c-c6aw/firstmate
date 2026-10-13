@@ -1,0 +1,8 @@
+## Scenario C: unlisted session, Firstmate starts the server with per-call variables removed
+ensure rc=0 after 0s
+[{"running":true,"default":false}]
+server pid found: yes
+Variables in the started server's live /proc environ (names only):
+FM_LAB_SENTINEL
+HERDR_SESSION
+(expect only FM_LAB_SENTINEL and HERDR_SESSION)

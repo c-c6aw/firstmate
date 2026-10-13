@@ -1,0 +1,6 @@
+## Scenario B: listed session, operator service brings the server up during the wait
+ensure rc=0 after 3s stderr=''
+service (lab provision) log: 
+[{"running":true,"default":false}]
+herdr server processes for the session (expect exactly 1, the service's):
+1

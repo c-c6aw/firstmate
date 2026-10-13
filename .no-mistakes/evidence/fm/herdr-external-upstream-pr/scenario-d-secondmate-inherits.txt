@@ -1,0 +1,8 @@
+## Scenario D: secondmate home inherits config/herdr-server-external and refuses to start the operator-owned server
+operator-owned session running before: false
+secondmate config/herdr-server-external before propagation: absent
+propagate rc=0
+secondmate copy matches primary: yes
+ensure as secondmate home rc=1 after 10s: error: herdr server for session '<ext-session>' is externally owned (config/herdr-server-external) and did not report running within 10s; start it through its service
+operator-owned session running after: false
+herdr server processes for the session: 0

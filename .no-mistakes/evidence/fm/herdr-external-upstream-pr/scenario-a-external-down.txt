@@ -1,0 +1,11 @@
+## Scenario A: listed session, server down, no service brings it up
+$ cat $LAB/config/herdr-server-external
+other-session
+  <ext-session>  
+/usr/bin/bash: line 12: bc: command not found
+rc=1 elapsed=s
+stderr: error: herdr server for session '<ext-session>' is externally owned (config/herdr-server-external) and did not report running within 10s; start it through its service
+herdr session list entry for the session (expect none — never started):
+[]
+herdr processes for the session: 0
+Scenario A re-run timing: rc=1 waited=10s (bounded ~10s wait, no start)
