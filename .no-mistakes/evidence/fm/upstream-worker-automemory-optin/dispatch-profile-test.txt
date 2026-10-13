@@ -1,0 +1,5 @@
+ok - config/disable-worker-auto-memory turns Claude auto memory off for workers only when present
+ok - keep-ai-trailers is inherited so a secondmate's crew launch keeps AI trailers
+ok - a claude secondmate launch carries the attribution-off policy too
+ok - active crew-dispatch profile does not block secondmate launches
+# all fm-spawn-dispatch-profile tests passed

@@ -1,0 +1,10 @@
+== scout-default: pane pid 653676, claude pid 655654 (claude --dangerously-skip-permissions --add-dir /tmp/fm-lab.)
+CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
+CLAUDE_CODE_SEND_FEEDBACK=0
+CLAUDE_CODE_DISABLE_AUTO_MEMORY count: 0
+== scout-optin: pane pid 677289, claude pid 680360 (claude --dangerously-skip-permissions --add-dir /tmp/fm-lab.)
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
+CLAUDE_CODE_SEND_FEEDBACK=0
+CLAUDE_CODE_DISABLE_AUTO_MEMORY count: 1
+config at time of capture: crew-harness disable-worker-auto-memory  (flag added after scout-default launched)

@@ -1,0 +1,19 @@
+== scout-default /memory dialog
+ ▐▛███▛█   Claude Code v2.1.296
+▝▜██████▀  Opus 5.5 (1M context) with high effort · Claude Max
+ ▝▝   ▝▝   ~/.treehouse/demo-66b6ac/1/demo
+❯ : Firstmate operational input waiting: read '/tmp/fm-lab.NqX2tg/state/operational-inbox/1791859271-59f3dec1b8ed0d54.msg' and handle its contents as Firstmate operational input.
+  Read 1 file, listed 1 directory, ran 1 shell command
+● Writing the report first, then running the gate.
+  Ran 2 shell commands
+● The repository root holds only two hidden entries, .claude and .git. I made no edits.
+  The report is at /tmp/fm-lab.NqX2tg/data/scout-default/report.md. The completion gate passed with no open captain decisions, and the done line is in the status file.
+✻ Churned for 26s · done 9:41 PM
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Memory
+   ❯ Auto-memory  true
+   ❯ User instructions      Saved in ~/.claude/CLAUDE.md
+     Project instructions   Checked in at ./CLAUDE.md
+     Open auto-memory folder
+   Learn more: https://code.claude.com/docs/en/memory
+   Enter to confirm · Esc to cancel

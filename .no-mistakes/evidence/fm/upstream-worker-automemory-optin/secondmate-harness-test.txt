@@ -1,0 +1,2 @@
+ok - C2 spawn: a bare harness-only secondmate-harness file launches with no model/effort flag (backward-compat)
+# all fm-secondmate-harness tests passed
