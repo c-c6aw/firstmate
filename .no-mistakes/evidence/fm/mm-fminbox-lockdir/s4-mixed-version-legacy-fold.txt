@@ -1,0 +1,45 @@
+$ <base-commit>/bin/fm-inbox.sh note -- "note from older code"   # an older process during upgrade
+queued 1791942072-7gL4Sn
+  note from older code
+  firstmate will pick this up at its next check.
+exit=0
+$ ls -An ~LAB/state | grep wake; cat ~LAB/state/.wake-queue
+drwxr-xr-x 2 1000 1000 100 Oct 13 20:40 wake
+-rw-r--r-- 1 1000 1000 110 Oct 13 20:41 .wake-queue
+-rw-r--r-- 1 1000 1000   2 Oct 13 20:41 .wake-queue.seq
+1791942072	1	check	inbox:1791942072-7gL4Sn	check: captain inbox note 1791942072-7gL4Sn - note from older code
+$ bin/fm-inbox.sh note -- "note from new code"   # new code loads the wake library and folds the legacy queue
+queued 1791942072-PG4Ivt
+  note from new code
+  firstmate will pick this up at its next check.
+exit=0
+$ ls -An ~LAB/state ~LAB/state/wake
+~LAB/state:
+total 0
+drwxr-xr-x 5 1000 1000 140 Oct 13 20:41 inbox
+drwxr-xr-x 2 1000 1000 100 Oct 13 20:41 wake
+
+~LAB/state/wake:
+total 12
+-rw------- 1 1000 1000 439 Oct 13 20:41 queue
+-rw-r--r-- 1 1000 1000   2 Oct 13 20:41 queue.seq
+-rw------- 1 1000 1000  42 Oct 13 20:41 watcher-down
+$ cat ~LAB/state/wake/queue
+1791942043	1	check	inbox:1791942034-zWM4aA	check: captain inbox note 1791942034-zWM4aA - example sandboxed note
+1791942043	2	check	inbox:1791942043-7CzvrL	check: captain inbox note 1791942043-7CzvrL - second example note
+1791942072	3	check	inbox:1791942072-7gL4Sn	check: captain inbox note 1791942072-7gL4Sn - note from older code
+1791942073	4	check	inbox:1791942072-PG4Ivt	check: captain inbox note 1791942072-PG4Ivt - note from new code
+$ bin/fm-inbox.sh note -- "third note"   # fold runs once: no duplicate rows
+exit=0
+$ cat ~LAB/state/wake/queue
+1791942043	1	check	inbox:1791942034-zWM4aA	check: captain inbox note 1791942034-zWM4aA - example sandboxed note
+1791942043	2	check	inbox:1791942043-7CzvrL	check: captain inbox note 1791942043-7CzvrL - second example note
+1791942072	3	check	inbox:1791942072-7gL4Sn	check: captain inbox note 1791942072-7gL4Sn - note from older code
+1791942073	4	check	inbox:1791942072-PG4Ivt	check: captain inbox note 1791942072-PG4Ivt - note from new code
+1791942073	5	check	inbox:1791942073-EGz72V	check: captain inbox note 1791942073-EGz72V - third note
+$ rows per note id:
+      1 inbox:1791942034-zWM4aA
+      1 inbox:1791942043-7CzvrL
+      1 inbox:1791942072-7gL4Sn
+      1 inbox:1791942072-PG4Ivt
+      1 inbox:1791942073-EGz72V

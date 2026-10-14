@@ -1,0 +1,21 @@
+# fixture: a fold that crashed after raising the counter and renaming the legacy queue to its claim
+$ ls ~LAB/state/wake
+legacy-fold.1
+queue
+queue.seq
+watcher-down
+$ (sandbox, state/wake read-only) fm-inbox.sh ready: exit=0 elapsed_ms=103
+$ claim kept:
+legacy-fold.1
+$ (unsandboxed) fm-inbox.sh note -- "writable loader note"
+exit=0
+$ ls ~LAB/state/wake
+queue
+queue.seq
+watcher-down
+$ cat ~LAB/state/wake/queue
+1791942175	1	check	inbox:1791942175-YJVEWb	check: captain inbox note 1791942175-YJVEWb - first note
+1791942100	2	check	legacy:leftover	check: leftover claimed row
+1791942176	3	check	inbox:1791942175-JqFzYa	check: captain inbox note 1791942175-JqFzYa - writable loader note
+$ duplicate sequences:
+(none above means none)

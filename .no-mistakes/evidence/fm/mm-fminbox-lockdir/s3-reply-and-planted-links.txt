@@ -1,0 +1,32 @@
+$ bwrap --bind / / --tmpfs ~LAB/state/wake --bind ~LAB/state/inbox ~LAB/state/inbox -- bin/fm-inbox.sh reply 1791942034-zWM4aA 'example reply'   # wake and inbox on separate mounts
+~LAB/state/wake tmpfs
+~LAB/state/inbox tmpfs
+replied 1791942034-zWM4aA
+exit=0
+$ bin/fm-inbox.sh reply 1791942034-zWM4aA 'again'   # second reply refused
+fm-inbox: reply already recorded for 1791942034-zWM4aA
+exit=1
+$ bin/fm-inbox.sh receipts --all-replies
+{"schema":"fm-inbox-receipts.v1","home":"tmp/fm-lab.VWtltm","generated":"2026-10-14T01:40:57Z","pending":[{"id":"1791942043-7CzvrL","at":"2026-10-14T01:40:43Z","source":"text","request_id":null,"body":"second example note","acknowledged":false,"announced":true,"reply":null},{"id":"1791942034-zWM4aA","at":"2026-10-14T01:40:34Z","source":"text","request_id":null,"body":"example sandboxed note","acknowledged":false,"announced":true,"reply":{"id":"1791942034-zWM4aA","at":"2026-10-14T01:40:57Z","body":"example reply","cursor":"000000000001"}}],"handled":[],"replies":[{"id":"1791942034-zWM4aA","at":"2026-10-14T01:40:57Z","body":"example reply","cursor":"000000000001"}],"reply_cursor":"000000000001","omitted":[]}
+
+exit=0
+$ adversarial: importer plants ~LAB/state/inbox/.replies -> ~LAB/elsewhere, then reply
+fm-inbox: refusing to reply: ~LAB/state/inbox/.replies is a link or resolves outside ~LAB/state/inbox
+exit=1
+contents of ~LAB/elsewhere: []
+$ adversarial: importer plants ~LAB/state/inbox/handled -> ~LAB/elsewhere, then drain --ack
+fm-inbox: refusing to ack: ~LAB/state/inbox/handled is a link or resolves outside ~LAB/state/inbox
+exit=1
+contents of ~LAB/elsewhere: []
+$ adversarial: drain --ack with an invalid id refuses the whole batch
+fm-inbox: invalid note id: ../x
+exit=1
+1791942034-zWM4aA.note
+1791942043-7CzvrL.note
+$ bin/fm-inbox.sh drain --ack 1791942034-zWM4aA 1791942043-7CzvrL
+acked 1791942034-zWM4aA
+acked 1791942043-7CzvrL
+exit=0
+$ find ~LAB/state -mindepth 1 -maxdepth 1
+~LAB/state/inbox
+~LAB/state/wake

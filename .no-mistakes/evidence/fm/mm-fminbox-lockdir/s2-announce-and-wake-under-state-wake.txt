@@ -1,0 +1,30 @@
+$ bin/fm-inbox.sh announce 1791942034-zWM4aA   # unsandboxed watcher path
+announced 1791942034-zWM4aA
+exit=0
+$ bwrap --ro-bind / / --bind ~LAB/state/inbox --bind ~LAB/state/wake -- bin/fm-inbox.sh note -- "second example note"   # full note with wake, state/ itself read-only
+queued 1791942043-7CzvrL
+  second example note
+  firstmate will pick this up at its next check.
+exit=0
+$ find ~LAB/state -mindepth 1 | sort
+~LAB/state/inbox
+~LAB/state/inbox/1791942034-zWM4aA.note
+~LAB/state/inbox/1791942043-7CzvrL.note
+~LAB/state/inbox/.announced
+~LAB/state/inbox/.announced/1791942034-zWM4aA
+~LAB/state/inbox/.announced/1791942043-7CzvrL
+~LAB/state/wake
+~LAB/state/wake/queue
+~LAB/state/wake/queue.seq
+~LAB/state/wake/watcher-down
+$ cat ~LAB/state/wake/queue
+1791942043	1	check	inbox:1791942034-zWM4aA	check: captain inbox note 1791942034-zWM4aA - example sandboxed note
+1791942043	2	check	inbox:1791942043-7CzvrL	check: captain inbox note 1791942043-7CzvrL - second example note
+$ bin/fm-inbox.sh drain
+1791942034-zWM4aA
+    example sandboxed note
+1791942043-7CzvrL
+    second example note
+
+Ack with: fm-inbox.sh drain --ack <id>...
+exit=0

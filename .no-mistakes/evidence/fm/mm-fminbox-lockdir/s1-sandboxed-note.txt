@@ -1,0 +1,16 @@
+$ bwrap --ro-bind / / --dev /dev --bind ~LAB/state/inbox ~LAB/state/inbox -- bin/fm-inbox.sh note --no-announce -- "example sandboxed note"
+queued 1791942034-zWM4aA
+  example sandboxed note
+  firstmate's watcher will announce this note at its next poll.
+exit=0
+$ bwrap (same) -- touch ~LAB/state/x.check.sh   # sandbox cannot write the rest of state/
+touch: cannot touch '~LAB/state/x.check.sh': Read-only file system
+exit=1
+$ ls -lan ~LAB/state ~LAB/state/inbox
+~LAB/state:
+total 0
+drwxr-xr-x 2 1000 1000 60 Oct 13 20:40 inbox
+
+~LAB/state/inbox:
+total 4
+-rw------- 1 1000 1000 101 Oct 13 20:40 1791942034-zWM4aA.note
