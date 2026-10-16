@@ -1,0 +1,34 @@
+===== fm-scout-am-off-z1 (/memory dialog)
+ ▐▛███▛█   Claude Code v2.1.296
+▝▜██████▀  Opus 5.5 (1M context) with high effort · Claude Max
+ ▝▝   ▝▝   ~/.treehouse/proj-3c5882/1/proj
+⚠ Your login expires in 2 days · run /login to renew
+❯ : Firstmate operational input waiting: read '/tmp/fm-lab.A2cyOR/home/state/operational-inbox/1792120325-7e8587fb5c82b7c3.msg' and handle its contents as Firstmate operational input.
+  Read 1 file
+● DONE
+✻ Baked for 4s · done 10:12 PM
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Memory
+   ❯ Auto-memory  true
+   ❯ User instructions      Saved in ~/.claude/CLAUDE.md
+     Project instructions   Checked in at ./CLAUDE.md
+     Open auto-memory folder
+   Learn more: https://code.claude.com/docs/en/memory
+   Enter to confirm · Esc to cancel
+===== fm-scout-am-on-z2 (/memory dialog)
+ ▐▛███▛█   Claude Code v2.1.296
+▝▜██████▀  Opus 5.5 (1M context) with high effort · Claude Max
+ ▝▝   ▝▝   ~/.treehouse/proj-3c5882/2/proj
+⚠ Your login expires in 2 days · run /login to renew
+❯ : Firstmate operational input waiting: read '/tmp/fm-lab.A2cyOR/home/state/operational-inbox/1792120351-44ee0ae4eba0537c.msg' and handle its contents as Firstmate operational input.
+  Listed 1 directory
+● DONE
+✻ Brewed for 4s · done 10:12 PM
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Memory
+   ❯ Auto-memory  false
+     off · can't be turned on here; use a session started outside Claude Code
+   ❯ User instructions      Saved in ~/.claude/CLAUDE.md
+     Project instructions   Checked in at ./CLAUDE.md
+   Learn more: https://code.claude.com/docs/en/memory
+   Enter to confirm · Esc to cancel

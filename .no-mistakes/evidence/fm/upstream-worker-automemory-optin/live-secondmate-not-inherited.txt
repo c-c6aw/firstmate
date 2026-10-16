@@ -1,0 +1,3 @@
+secondmate home config/ after provisioning:
+crew-harness
+disable-worker-auto-memory inherited? no

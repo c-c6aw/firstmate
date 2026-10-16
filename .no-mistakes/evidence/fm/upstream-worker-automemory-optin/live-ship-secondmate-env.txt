@@ -1,0 +1,8 @@
+config/ contents of lab home: crew-harness disable-worker-auto-memory secondmate-harness 
+== fm-ship-am-on-z3 claude pid=1925470 kind=kind=ship
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
+CLAUDE_CODE_SEND_FEEDBACK=0
+== fm-sm-am-z4 claude pid=1945379 kind=kind=secondmate
+CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
+CLAUDE_CODE_SEND_FEEDBACK=0
